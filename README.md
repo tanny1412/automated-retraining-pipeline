@@ -14,6 +14,7 @@ A production-style closed-loop pipeline where a sentiment classification model i
 - **Serving:** FastAPI + uvicorn
 - **Drift Detection:** Confidence + prediction distribution monitoring
 - **Containerization:** Docker + docker-compose
+- **CI/CD:** GitHub Actions — tests + Docker build on every push
 - **Device:** CUDA / Apple MPS / CPU (auto-detected)
 
 ## Project Phases
@@ -24,7 +25,7 @@ A production-style closed-loop pipeline where a sentiment classification model i
 | 2 | MLflow experiment tracking | Done |
 | 3 | Automated retraining trigger | Done |
 | 4 | Drift detection + monitoring | Done |
-| 5 | Docker + CI/CD | In progress |
+| 5 | Docker + CI/CD | Done |
 
 ## How It Works
 
