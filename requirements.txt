@@ -8,3 +8,4 @@ mlflow
 pyarrow>=21,<24
 pytest
 httpx
+prometheus-client

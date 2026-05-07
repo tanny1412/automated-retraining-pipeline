@@ -2,9 +2,14 @@ import csv
 import os
 import torch
 from datetime import datetime
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+
+PREDICT_COUNT = Counter("predict_requests_total", "Total prediction requests", ["prediction"])
+PREDICT_LATENCY = Histogram("predict_latency_seconds", "Model inference latency")
+REQUEST_LATENCY = Histogram("request_latency_seconds", "Full API request latency")
 
 PREDICTIONS_LOG = "predictions.csv"
 
@@ -51,20 +56,28 @@ def reload_model():
 
 @app.post("/predict", response_model=PredictResponse)
 def predict(request: PredictRequest):
-    inputs = tokenizer(request.text, return_tensors="pt", truncation=True, padding="max_length", max_length=128)
-    inputs = {k: v.to(device) for k, v in inputs.items() if k != "token_type_ids"}
+    with REQUEST_LATENCY.time():
+        with PREDICT_LATENCY.time():
+            inputs = tokenizer(request.text, return_tensors="pt", truncation=True, padding="max_length", max_length=128)
+            inputs = {k: v.to(device) for k, v in inputs.items() if k != "token_type_ids"}
 
-    with torch.no_grad():
-        outputs = model(**inputs)
+            with torch.no_grad():
+                outputs = model(**inputs)
 
-    probs = torch.softmax(outputs.logits, dim=-1)
-    confidence, predicted_class = probs.max(dim=-1)
+            probs = torch.softmax(outputs.logits, dim=-1)
+            confidence, predicted_class = probs.max(dim=-1)
 
-    label = "positive" if predicted_class.item() == 1 else "negative"
-    conf = round(confidence.item(), 4)
+            label = "positive" if predicted_class.item() == 1 else "negative"
+            conf = round(confidence.item(), 4)
 
-    with open(PREDICTIONS_LOG, "a", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([datetime.now().isoformat(), request.text, label, conf])
+        PREDICT_COUNT.labels(prediction=label).inc()
 
-    return PredictResponse(prediction=label, confidence=conf)
+        with open(PREDICTIONS_LOG, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([datetime.now().isoformat(), request.text, label, conf])
+
+        return PredictResponse(prediction=label, confidence=conf)
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
