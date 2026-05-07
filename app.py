@@ -31,7 +31,7 @@ def health():
 @app.post("/predict", response_model=PredictResponse)
 def predict(request: PredictRequest):
     inputs = tokenizer(request.text, return_tensors="pt", truncation=True, padding="max_length", max_length=128)
-    inputs = {k: v.to(device) for k, v in inputs.items()}
+    inputs = {k: v.to(device) for k, v in inputs.items() if k != "token_type_ids"}
 
     with torch.no_grad():
         outputs = model(**inputs)
