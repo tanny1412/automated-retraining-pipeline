@@ -1,0 +1,8 @@
+models/
+__pycache__/
+*.py[cod]
+.env
+*.pt
+*.bin
+*.safetensors
+.DS_Store
