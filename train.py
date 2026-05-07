@@ -1,22 +1,32 @@
 import argparse
+import logging
+import mlflow
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
+from tqdm import tqdm
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s — %(message)s", datefmt="%H:%M:%S")
+logger = logging.getLogger(__name__)
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=2e-5)
+    parser.add_argument("--max-samples", type=int, default=None)
     return parser.parse_args()
 
-def load_data():
+def load_data(max_samples=None):
     dataset = load_dataset("sst2")
     train_data = dataset["train"]
     val_data = dataset["validation"]
-    print(f"Train size: {len(train_data)}, Val size: {len(val_data)}")
+    if max_samples:
+        train_data = train_data.select(range(max_samples))
+        val_data = val_data.select(range(min(max_samples // 5, len(val_data))))
+    logger.info(f"Train size: {len(train_data)}, Val size: {len(val_data)}")
     return train_data, val_data
 
 def tokenize_data(train_data, val_data):
@@ -31,8 +41,19 @@ def tokenize_data(train_data, val_data):
     train_tokenized.set_format("torch", columns=["input_ids", "attention_mask", "label"])
     val_tokenized.set_format("torch", columns=["input_ids", "attention_mask", "label"])
 
-    print(f"Sample token ids: {train_tokenized[0]['input_ids'][:10]}")
     return tokenizer, train_tokenized, val_tokenized
+
+def get_model_and_loaders(train_tokenized, val_tokenized, batch_size):
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    logger.info(f"Using device: {device}")
+
+    model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
+    model = model.to(device)
+
+    train_loader = DataLoader(train_tokenized, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_tokenized, batch_size=batch_size)
+
+    return model, train_loader, val_loader, device
 
 def train(model, train_loader, val_loader, device, args):
     optimizer = AdamW(model.parameters(), lr=args.lr)
@@ -41,7 +62,8 @@ def train(model, train_loader, val_loader, device, args):
         model.train()
         total_loss = 0
 
-        for batch in train_loader:
+        progress = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs}", unit="batch")
+        for batch in progress:
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["label"].to(device)
@@ -54,14 +76,14 @@ def train(model, train_loader, val_loader, device, args):
             optimizer.step()
 
             total_loss += loss.item()
+            progress.set_postfix(loss=f"{loss.item():.4f}")
 
         avg_loss = total_loss / len(train_loader)
 
-        # validation
         model.eval()
         correct, total = 0, 0
         with torch.no_grad():
-            for batch in val_loader:
+            for batch in tqdm(val_loader, desc="Validating", leave=False):
                 input_ids = batch["input_ids"].to(device)
                 attention_mask = batch["attention_mask"].to(device)
                 labels = batch["label"].to(device)
@@ -72,24 +94,32 @@ def train(model, train_loader, val_loader, device, args):
                 total += labels.size(0)
 
         accuracy = correct / total
-        print(f"Epoch {epoch+1}/{args.epochs} — loss: {avg_loss:.4f}, val_accuracy: {accuracy:.4f}")
+        logger.info(f"Epoch {epoch+1}/{args.epochs} — loss: {avg_loss:.4f}, val_accuracy: {accuracy:.4f}")
+        mlflow.log_metrics({"loss": avg_loss, "val_accuracy": accuracy}, step=epoch + 1)
 
-def get_model_and_loaders(train_tokenized, val_tokenized, batch_size):
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-    print(f"Using device: {device}")
-
-    model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
-    model = model.to(device)
-
-    train_loader = DataLoader(train_tokenized, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_tokenized, batch_size=batch_size)
-
-    return model, train_loader, val_loader, device
+def save_model(model, tokenizer):
+    torch.save(model.state_dict(), "models/best_model.pt")
+    tokenizer.save_pretrained("models/tokenizer")
+    logger.info("Model and tokenizer saved to models/")
 
 if __name__ == "__main__":
     args = get_args()
-    print(f"epochs={args.epochs}, batch_size={args.batch_size}, lr={args.lr}")
-    train_data, val_data = load_data()
-    tokenizer, train_tokenized, val_tokenized = tokenize_data(train_data, val_data)
-    model, train_loader, val_loader, device = get_model_and_loaders(train_tokenized, val_tokenized, args.batch_size)
-    train(model, train_loader, val_loader, device, args)
+    logger.info(f"epochs={args.epochs}, batch_size={args.batch_size}, lr={args.lr}")
+
+    mlflow.set_experiment("sentiment-classifier")
+    with mlflow.start_run():
+        mlflow.log_params({
+            "epochs": args.epochs,
+            "batch_size": args.batch_size,
+            "lr": args.lr,
+            "max_samples": args.max_samples,
+            "model": "distilbert-base-uncased",
+            "dataset": "sst2",
+        })
+
+        train_data, val_data = load_data(args.max_samples)
+        tokenizer, train_tokenized, val_tokenized = tokenize_data(train_data, val_data)
+        model, train_loader, val_loader, device = get_model_and_loaders(train_tokenized, val_tokenized, args.batch_size)
+        train(model, train_loader, val_loader, device, args)
+        save_model(model, tokenizer)
+        mlflow.log_artifacts("models/", artifact_path="model")

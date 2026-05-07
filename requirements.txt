@@ -3,3 +3,6 @@ transformers
 datasets
 fastapi
 uvicorn
+tqdm
+mlflow
+pyarrow>=21,<24
