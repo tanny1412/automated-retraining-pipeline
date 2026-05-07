@@ -6,3 +6,5 @@ uvicorn
 tqdm
 mlflow
 pyarrow>=21,<24
+pytest
+httpx
