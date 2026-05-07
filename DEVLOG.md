@@ -177,9 +177,34 @@ After upgrading MLflow, the local `mlruns/` database schema was outdated.
 
 ---
 
+---
+
+## Step 4 — Drift Detection
+
+Built `drift_detector.py` that reads `predictions.csv` (logged by `app.py` on every request) and checks two signals:
+
+**Signal 1 — Confidence drift:** Tracks average prediction confidence across recent requests. If it drops more than 10% below baseline (0.90), the model is uncertain about incoming data — likely seeing text it wasn't trained on.
+
+**Signal 2 — Prediction distribution drift:** Tracks ratio of positive vs negative predictions. SST-2 is ~50/50 so baseline positive ratio is 0.50. If it shifts more than 20%, the incoming data distribution has changed.
+
+**Why two signals:**
+- Confidence drift = model doesn't recognize new data style (leading indicator)
+- Distribution drift = input data looks different from training data (structural shift)
+- A model can be confident but wrong (distribution drift without confidence drift)
+- Together they give a fuller picture than either alone
+
+**Real example from testing:**
+Sent Gen Z slang inputs ("this movie lowkey cooked", "mid ahh ending fr", "absolute cinema no cap") — model predicted negative for all of them with high confidence. It understood the words but not the meaning. Positive ratio shifted to 85% (from expected 50%) when we then stress-tested with positive inputs — distribution drift triggered at 0.35 shift vs 0.20 threshold.
+
+**Why log to CSV instead of a database:**
+At this scale (thousands of predictions), CSV is sufficient. No extra dependencies, human-readable, easy to inspect. In production you'd stream to BigQuery, S3, or a time-series database.
+
+**How it plugs into the pipeline:**
+`retrain_if_needed.py` now checks drift first, then accuracy. Either signal triggers retraining. The inner `if drift` / `if not healthy` blocks are only for logging *why* retraining triggered — `retrain()` sits at the `else` level and runs for both cases.
+
+---
+
 ## Up Next
 
-- **app.py:** FastAPI server — /health and /predict endpoints, loads saved model
-- **Step 3:** Automated retraining trigger
-- **Step 4:** Drift detection
-- **Step 5:** Docker + CI/CD
+- **Step 5:** Docker — containerize the full pipeline
+- **Step 6:** CI/CD with GitHub Actions

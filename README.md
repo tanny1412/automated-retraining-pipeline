@@ -22,17 +22,18 @@ A production-style closed-loop pipeline where a sentiment classification model i
 | 1 | Core train → save → serve loop | Done |
 | 2 | MLflow experiment tracking | Done |
 | 3 | Automated retraining trigger | Done |
-| 4 | Drift detection + monitoring | In progress |
+| 4 | Drift detection + monitoring | Done |
 | 5 | Docker + CI/CD | Not started |
 
 ## How It Works
 
 ```
-train.py          → fine-tunes DistilBERT, logs to MLflow, saves model
-app.py            → serves predictions via FastAPI, logs every request
-evaluate.py       → measures current model accuracy on validation set
-drift_detector.py → checks confidence + label distribution from request logs
-retrain_if_needed.py → orchestrates: evaluate → retrain → hot-reload API
+train.py             → fine-tunes DistilBERT, logs to MLflow, saves model
+app.py               → serves predictions via FastAPI, logs every request to CSV
+evaluate.py          → measures current model accuracy on validation set
+drift_detector.py    → checks confidence drop + prediction distribution shift
+retrain_if_needed.py → orchestrates full loop:
+                         check drift → check accuracy → retrain → hot-reload API
 ```
 
 ## Quickstart
