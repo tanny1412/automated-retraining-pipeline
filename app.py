@@ -1,7 +1,20 @@
+import csv
+import os
 import torch
+from datetime import datetime
 from fastapi import FastAPI
 from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+PREDICTIONS_LOG = "predictions.csv"
+
+def init_log():
+    if not os.path.exists(PREDICTIONS_LOG):
+        with open(PREDICTIONS_LOG, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["timestamp", "text", "prediction", "confidence"])
+
+init_log()
 
 app = FastAPI()
 
@@ -48,4 +61,10 @@ def predict(request: PredictRequest):
     confidence, predicted_class = probs.max(dim=-1)
 
     label = "positive" if predicted_class.item() == 1 else "negative"
-    return PredictResponse(prediction=label, confidence=round(confidence.item(), 4))
+    conf = round(confidence.item(), 4)
+
+    with open(PREDICTIONS_LOG, "a", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([datetime.now().isoformat(), request.text, label, conf])
+
+    return PredictResponse(prediction=label, confidence=conf)

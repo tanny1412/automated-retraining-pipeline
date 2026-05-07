@@ -8,5 +8,6 @@ __pycache__/
 *.safetensors
 .DS_Store
 CLAUDE.md
+predictions.csv
 mlflow.db
 mlruns/
