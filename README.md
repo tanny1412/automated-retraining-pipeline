@@ -13,6 +13,7 @@ A production-style closed-loop pipeline where a sentiment classification model i
 - **Experiment Tracking:** MLflow
 - **Serving:** FastAPI + uvicorn
 - **Drift Detection:** Confidence + prediction distribution monitoring
+- **Containerization:** Docker + docker-compose
 - **Device:** CUDA / Apple MPS / CPU (auto-detected)
 
 ## Project Phases
@@ -23,7 +24,7 @@ A production-style closed-loop pipeline where a sentiment classification model i
 | 2 | MLflow experiment tracking | Done |
 | 3 | Automated retraining trigger | Done |
 | 4 | Drift detection + monitoring | Done |
-| 5 | Docker + CI/CD | Not started |
+| 5 | Docker + CI/CD | In progress |
 
 ## How It Works
 
@@ -38,6 +39,7 @@ retrain_if_needed.py → orchestrates full loop:
 
 ## Quickstart
 
+### Local
 ```bash
 pip install -r requirements.txt
 
@@ -49,6 +51,15 @@ uvicorn app:app --reload
 
 # Check if retraining is needed
 python retrain_if_needed.py
+```
+
+### Docker
+```bash
+# Start inference API + MLflow
+docker compose up
+
+# API: http://localhost:8000
+# MLflow UI: http://localhost:5001
 ```
 
 ## API
