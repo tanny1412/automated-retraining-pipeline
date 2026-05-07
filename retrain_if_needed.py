@@ -6,6 +6,13 @@ import urllib.request
 logging.basicConfig(level=logging.INFO, format="%(asctime)s — %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
 
+def check_drift():
+    result = subprocess.run(
+        [sys.executable, "drift_detector.py"],
+        capture_output=False
+    )
+    return result.returncode == 1
+
 def check_model_health(threshold=0.90):
     result = subprocess.run(
         [sys.executable, "evaluate.py", "--threshold", str(threshold)],
@@ -33,10 +40,15 @@ def notify_api_reload(api_url="http://localhost:8000"):
         logger.warning(f"Could not reach API to reload: {e}")
 
 if __name__ == "__main__":
+    drift = check_drift()
     healthy = check_model_health(threshold=0.90)
-    if healthy:
-        logger.info("Model is healthy — no retraining needed")
+
+    if not drift and healthy:
+        logger.info("No drift, model is healthy — no retraining needed")
     else:
-        logger.info("Model needs retraining — triggering train.py")
+        if drift:
+            logger.info("Drift detected — triggering retraining")
+        if not healthy:
+            logger.info("Accuracy below threshold — triggering retraining")
         retrain(epochs=3, batch_size=16)
         notify_api_reload()
