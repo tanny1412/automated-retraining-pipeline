@@ -1,0 +1,17 @@
+services:
+  inference:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+      - ./predictions.csv:/app/predictions.csv
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.21.3
+    ports:
+      - "5001:5000"
+    volumes:
+      - ./mlruns:/mlruns
+      - ./mlflow.db:/mlflow.db
+    command: mlflow server --host 0.0.0.0 --port 5000
