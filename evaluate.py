@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--threshold", type=float, default=0.85)
+    parser.add_argument("--threshold", type=float, default=0.90)
     parser.add_argument("--batch-size", type=int, default=32)
     return parser.parse_args()
 

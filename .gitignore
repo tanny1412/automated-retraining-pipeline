@@ -8,3 +8,5 @@ __pycache__/
 *.safetensors
 .DS_Store
 CLAUDE.md
+mlflow.db
+mlruns/

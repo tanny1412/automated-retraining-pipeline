@@ -156,6 +156,27 @@ In production this would point to a remote tracking server (MLflow on EC2, Datab
 
 ---
 
+## Step 3 — Automated Retraining Trigger
+
+Built a closed-loop retraining pipeline across 3 scripts:
+
+**`evaluate.py`** — loads current model, runs it on SST-2 validation set, exits with code 0 (healthy) or 1 (needs retraining) based on a configurable accuracy threshold. Runs fast — no weight updates, just a forward pass on 872 examples.
+
+**`retrain_if_needed.py`** — orchestrates the loop. Calls `evaluate.py` via subprocess, checks exit code, triggers `train.py` if needed, then calls `POST /reload` on the running API.
+
+**`/reload` endpoint in `app.py`** — hot-swaps model weights in memory without restarting the server. Uses `global model` + `load_state_dict()` to replace weights in-place.
+
+**Why subprocess instead of importing?** Each script stays independently runnable from CLI or any orchestrator (cron, Airflow, GitHub Actions) without code changes. Exit codes are the universal signal.
+
+**Why `global model` in /reload?** The model is loaded at module level on startup. To replace it from inside a function, Python needs `global` to know we're modifying the outer variable, not creating a local one.
+
+### Problem: MLflow schema mismatch after version upgrade
+After upgrading MLflow, the local `mlruns/` database schema was outdated.
+**Fix for dev:** `rm -rf mlruns/` — MLflow recreates it with the correct schema.
+**Fix for production:** `mlflow db upgrade sqlite:///mlruns/mlruns.db` before running any training after an upgrade.
+
+---
+
 ## Up Next
 
 - **app.py:** FastAPI server — /health and /predict endpoints, loads saved model

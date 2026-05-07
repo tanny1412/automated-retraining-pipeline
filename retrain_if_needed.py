@@ -6,7 +6,7 @@ import urllib.request
 logging.basicConfig(level=logging.INFO, format="%(asctime)s — %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
 
-def check_model_health(threshold=0.85):
+def check_model_health(threshold=0.90):
     result = subprocess.run(
         [sys.executable, "evaluate.py", "--threshold", str(threshold)],
         capture_output=False
@@ -33,7 +33,7 @@ def notify_api_reload(api_url="http://localhost:8000"):
         logger.warning(f"Could not reach API to reload: {e}")
 
 if __name__ == "__main__":
-    healthy = check_model_health(threshold=0.85)
+    healthy = check_model_health(threshold=0.90)
     if healthy:
         logger.info("Model is healthy — no retraining needed")
     else:
