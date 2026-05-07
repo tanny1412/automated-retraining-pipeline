@@ -128,9 +128,37 @@ models/
 
 ---
 
+---
+
+## Step 2 — MLflow Experiment Tracking
+
+Added MLflow directly into `train.py` rather than as a separate step.
+The original plan said "add MLflow after Step 1" — but once the training loop worked, it made sense to integrate immediately while the code was fresh.
+
+**What MLflow tracks per run:**
+- Params: `epochs`, `batch_size`, `lr`, `max_samples`, `model`, `dataset` — logged once at start
+- Metrics: `loss` and `val_accuracy` per epoch with `step` so charts show progression over time
+- Artifacts: full `models/` directory (weights + tokenizer) — every run has its own saved model
+
+**Why `step=epoch+1` in log_metrics:**
+Without `step`, MLflow stores metrics as a flat value with no time axis.
+With `step`, you get a chart showing loss going down epoch by epoch — that's what you show in interviews and LinkedIn posts.
+
+**Why log artifacts:**
+Params and metrics tell you how a run performed.
+Artifacts let you go back and load the exact model from any run.
+This is the foundation of model versioning — before you need a full model registry.
+
+**Decision: MLflow runs locally for now**
+MLflow stores everything in `./mlruns/` by default.
+No server, no cloud, no setup — just `mlflow ui` to view.
+In production this would point to a remote tracking server (MLflow on EC2, Databricks, etc).
+
+---
+
 ## Up Next
 
-- **Step 2:** Wrap training with MLflow — track every run's metrics, params, and artifacts
-- **Step 3:** Build the retraining trigger — detect when to retrain and kick off `train.py` automatically
-- **Step 4:** Drift detection — monitor incoming data distribution vs training distribution
+- **app.py:** FastAPI server — /health and /predict endpoints, loads saved model
+- **Step 3:** Automated retraining trigger
+- **Step 4:** Drift detection
 - **Step 5:** Docker + CI/CD
