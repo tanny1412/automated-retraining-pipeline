@@ -128,3 +128,5 @@ if __name__ == "__main__":
         train(model, train_loader, val_loader, device, args)
         save_model(model, tokenizer)
         mlflow.log_artifacts("models/", artifact_path="model")
+    logger.info("Training complete")
+    exit(0)

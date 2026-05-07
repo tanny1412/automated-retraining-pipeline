@@ -28,6 +28,14 @@ def root():
 def health():
     return {"status": "ok"}
 
+@app.post("/reload")
+def reload_model():
+    global model
+    model.load_state_dict(torch.load("models/best_model.pt", map_location=device))
+    model.to(device)
+    model.eval()
+    return {"status": "model reloaded"}
+
 @app.post("/predict", response_model=PredictResponse)
 def predict(request: PredictRequest):
     inputs = tokenizer(request.text, return_tensors="pt", truncation=True, padding="max_length", max_length=128)
