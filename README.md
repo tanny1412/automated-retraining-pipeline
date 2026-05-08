@@ -133,6 +133,28 @@ Prometheus scrapes `/metrics` every 15 seconds. Key metrics:
 
 Grafana dashboards at `http://localhost:3000` visualize all metrics in real time.
 
+## CI/CD + Deploy Flow
+
+```
+git push to main
+      ↓
+GitHub Actions — tests run (pytest)
+      ↓
+Docker builds image with --platform linux/amd64
+      ↓
+Image pushed to ECR with :latest tag
+      ↓
+kubectl rollout restart deployment/inference-deployment
+      ↓
+Kubernetes kills old pod, starts new pod
+      ↓
+imagePullPolicy: Always → pulls :latest image fresh from ECR
+      ↓
+Init container runs → downloads model weights from S3
+      ↓
+Inference container starts → serving predictions with new code + latest model
+```
+
 ## Kubernetes Architecture
 
 ```
