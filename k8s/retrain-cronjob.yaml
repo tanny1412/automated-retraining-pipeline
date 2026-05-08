@@ -13,6 +13,9 @@ spec:
               image: 354578186384.dkr.ecr.us-east-1.amazonaws.com/ml-pipeline-inference:latest
               imagePullPolicy: Always
               command: ["python", "retrain_if_needed.py"]
+              env:
+                - name: PREDICTIONS_LOG
+                  value: "/app/data/predictions.csv"
               resources:
                 requests:
                   cpu: "250m"
@@ -24,8 +27,7 @@ spec:
                 - name: models
                   mountPath: /app/models
                 - name: predictions
-                  mountPath: /app/predictions.csv
-                  subPath: predictions.csv
+                  mountPath: /app/data
 
           restartPolicy: OnFailure
           volumes:

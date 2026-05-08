@@ -18,6 +18,9 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
+          env:
+            - name: PREDICTIONS_LOG
+              value: "/app/data/predictions.csv"
           resources:
             requests:
               cpu: "500m"
@@ -29,8 +32,7 @@ spec:
             - name: models-volume
               mountPath: /app/models
             - name: predictions-volume
-              mountPath: /app/predictions.csv
-              subPath: predictions.csv
+              mountPath: /app/data
       volumes:
         - name: models-volume
           persistentVolumeClaim:

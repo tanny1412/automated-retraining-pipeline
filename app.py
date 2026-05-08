@@ -11,7 +11,7 @@ PREDICT_COUNT = Counter("predict_requests_total", "Total prediction requests", [
 PREDICT_LATENCY = Histogram("predict_latency_seconds", "Model inference latency")
 REQUEST_LATENCY = Histogram("request_latency_seconds", "Full API request latency")
 
-PREDICTIONS_LOG = "predictions.csv"
+PREDICTIONS_LOG = os.environ.get("PREDICTIONS_LOG", "predictions.csv")
 
 def init_log():
     if not os.path.exists(PREDICTIONS_LOG):
