@@ -554,3 +554,27 @@ Inference pod started before Postgres DNS was registered. `app.py` calls `Base.m
 Fix: delete the inference pod after Postgres is Running — Kubernetes restarts it and DNS resolves correctly.
 
 **Final state:** All pods Running — inference, postgres, mlflow, prometheus, grafana, retrain CronJob. Inference serving predictions via public AWS LoadBalancer URL.
+
+---
+
+## Step 12 — End-to-End Pipeline Test + CI/CD Fixes
+
+Triggered the full retraining loop manually and caught several bugs that only surface when running end to end.
+
+**Problem 1: `train.py` missing from Docker image**
+`retrain_if_needed.py` calls `python train.py` via subprocess — but `train.py` was never added to the Dockerfile. The inference image only had `app.py`, `evaluate.py`, `drift_detector.py`. Fix: added `COPY train.py .` to Dockerfile.
+
+**Problem 2: `aws` CLI missing from Docker image**
+`upload_model_to_s3()` calls `aws s3 cp` as a shell command, but `python:3.11-slim` doesn't include the AWS CLI. Fix: added `RUN apt-get install -y awscli` to Dockerfile.
+
+**Problem 3: Tests failing in CI — no PostgreSQL**
+`app.py` calls `Base.metadata.create_all(bind=engine)` at import time. When tests import `app`, this immediately tries to connect to PostgreSQL — which doesn't exist in GitHub Actions. Fix: added a `postgres:15` service to the GitHub Actions workflow so tests run against a real database.
+
+**Problem 4: Drift tests using dicts instead of objects**
+Tests were written when `drift_detector.py` read CSV rows as dicts. After switching to SQLAlchemy, `detect_drift` expects objects with `.confidence` and `.prediction` attributes. Tests were still passing dicts — `AttributeError: 'dict' object has no attribute 'confidence'`. Fix: replaced dicts with a `FakePrediction` class in `test_drift.py`.
+
+**Problem 5: Full dataset too slow on CPU**
+CronJob ran `train.py` on all 67K SST-2 examples — takes 1-2 hours on CPU t3.medium nodes. Fix: added `MAX_SAMPLES` env var support to `retrain_if_needed.py`. If set, passes `--max-samples` to `train.py`. Set to 500 in the CronJob for testing — reduces training time to ~5 minutes.
+
+**CI/CD fully wired:**
+Added `kubectl rollout restart deployment/inference-deployment` as final step in GitHub Actions. Now every `git push` to main automatically: runs tests → builds image → pushes to ECR → redeploys EKS. Full GitOps loop without ArgoCD.
