@@ -306,7 +306,90 @@ kubectl logs <pod-name> -f
 
 ---
 
+## Step 8 — EKS Deployment
+
+Migrated the full Kubernetes stack from local minikube to AWS EKS.
+
+**What changed from minikube → EKS:**
+
+| minikube | EKS |
+|---|---|
+| Local Docker image | ECR (Elastic Container Registry) |
+| `imagePullPolicy: Never` | `imagePullPolicy: Always` |
+| `hostPath` volumes | `PersistentVolumeClaim` backed by EBS |
+| `minikube mount` | EBS CSI driver provisions disks automatically |
+| `NodePort` + tunnel | `LoadBalancer` → real public AWS URL |
+
+**Why 3 PVCs:**
+- `models-pvc` — model weights. Inference reads, CronJob writes after retraining
+- `predictions-pvc` — predictions.csv. Inference writes every request, CronJob reads for drift detection
+- `mlruns-pvc` — MLflow experiment runs
+
+Each PVC has one clear purpose. Shared between pods that need the same data.
+
+**EBS vs EFS tradeoff:**
+Used EBS (`ReadWriteOnce`) — one node, one pod at a time. Sufficient for `replicas: 1`.
+In production with multiple replicas, use EFS (`ReadWriteMany`) — shared across all nodes simultaneously.
+
+**Problem 1: PVCs stuck in Pending**
+PVCs were created without `storageClassName`. EKS had no default StorageClass set so PVCs didn't know how to provision disks.
+Fix: added `storageClassName: gp2` explicitly to all PVCs in `volumes.yaml`. Deleted and reapplied PVCs.
+
+**Problem 2: EBS CSI driver not installed**
+Even with `storageClassName: gp2`, PVCs stayed Pending. `kubectl get pods -n kube-system | grep ebs` returned nothing — the EBS CSI driver wasn't installed.
+Fix: `eksctl create addon --name aws-ebs-csi-driver --cluster ml-pipeline --region us-east-1`
+
+**Problem 3: OIDC not enabled — driver had no IAM permissions**
+The EBS CSI driver needs to call AWS APIs to create EBS volumes. Without OIDC, the driver pod has no AWS identity so AWS rejects the request.
+
+The mental model:
+```
+OIDC     = the driver's ID card
+IAM policy = the guest list (AmazonEBSCSIDriverPolicy)
+AWS      = the bouncer
+Driver shows ID → bouncer checks guest list → allowed to create EBS disk
+```
+
+Fix:
+```bash
+eksctl utils associate-iam-oidc-provider --cluster ml-pipeline --region us-east-1 --approve
+eksctl create iamserviceaccount \
+  --name ebs-csi-controller-sa \
+  --namespace kube-system \
+  --cluster ml-pipeline \
+  --region us-east-1 \
+  --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy \
+  --approve \
+  --override-existing-serviceaccounts
+```
+
+**Problem 4: exec format error — ARM vs x86 architecture mismatch**
+Inference pod crashed immediately with `exec format error`. The Docker image was built on an M2 Mac (ARM architecture) but EKS t3.medium nodes run x86 (AMD64). ARM binaries cannot execute on x86.
+
+This is below Docker's abstraction layer — Docker guarantees same OS/dependencies/config, but cannot abstract CPU instruction sets.
+
+Fix: rebuild with `--platform linux/amd64` to force x86 compilation:
+```bash
+docker build --platform linux/amd64 -t <ecr-uri>:latest .
+docker push <ecr-uri>:latest
+```
+
+Also added `--platform linux/amd64` to GitHub Actions CI so every future build targets x86 automatically.
+
+Production solution: multi-arch builds (`--platform linux/amd64,linux/arm64`) — one image containing both architectures, Docker picks the right one at runtime.
+
+**CI/CD update:**
+Added ECR push to GitHub Actions. On every merge to main:
+1. Tests run
+2. Image built and tagged with commit SHA + latest
+3. Pushed to ECR automatically
+
+Commit SHA tagging enables rollback — `kubectl set image` with a previous SHA to instantly revert.
+
+---
+
 ## Up Next
 
 - Download full Colab model and replace local models/
-- Deploy to EKS (swap hostPath → PVC, NodePort → LoadBalancer, push image to ECR)
+- Copy model weights into EBS volume after cluster is up (`kubectl cp`)
+- Delete cluster after testing to avoid AWS charges (`eksctl delete cluster --name ml-pipeline`)
