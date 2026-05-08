@@ -1,21 +1,22 @@
 # Automated ML Retraining Pipeline
 
-An end-to-end MLOps project demonstrating automated model retraining, experiment tracking, drift detection, and serving.
+An end-to-end MLOps platform demonstrating automated model retraining, experiment tracking, drift detection, and production serving — built to mirror how ML lifecycle management operates at scale.
 
 ## What This Builds
 
-A production-style closed-loop pipeline where a sentiment classification model is trained, versioned, served via API, monitored for drift, and automatically retrained when performance degrades — with zero manual intervention.
+A closed-loop MLOps pipeline where a DistilBERT sentiment classifier is continuously monitored, evaluated, and autonomously retrained when performance degrades — with zero manual intervention.
 
 ## Stack
 
 - **Model:** DistilBERT fine-tuned on SST-2 (binary sentiment classification)
-- **Training:** Manual PyTorch loop
-- **Experiment Tracking:** MLflow
+- **Training:** Manual PyTorch loop with gradient optimization and per-epoch validation
+- **Experiment Tracking:** MLflow (params, metrics, artifacts per run)
 - **Serving:** FastAPI + uvicorn
-- **Drift Detection:** Confidence + prediction distribution monitoring
+- **Drift Detection:** Confidence degradation + prediction distribution shift monitoring
 - **Containerization:** Docker + docker-compose
-- **CI/CD:** GitHub Actions — tests + Docker build on every push
-- **Monitoring:** Prometheus (metrics scraping) + Grafana (dashboards)
+- **CI/CD:** GitHub Actions — automated testing + Docker build on every push
+- **Monitoring:** Prometheus (metrics scraping) + Grafana (real-time dashboards)
+- **Orchestration:** Kubernetes — Deployments, Services, ConfigMaps, CronJob
 - **Device:** CUDA / Apple MPS / CPU (auto-detected)
 
 ## Project Phases
@@ -27,6 +28,8 @@ A production-style closed-loop pipeline where a sentiment classification model i
 | 3 | Automated retraining trigger | Done |
 | 4 | Drift detection + monitoring | Done |
 | 5 | Docker + CI/CD | Done |
+| 6 | Prometheus + Grafana | Done |
+| 7 | Kubernetes orchestration | Done |
 
 ## How It Works
 
@@ -66,6 +69,30 @@ docker compose up
 # Grafana:    http://localhost:3000  (admin/admin)
 ```
 
+### Kubernetes (minikube)
+```bash
+minikube start
+eval $(minikube docker-env)
+docker build -t automated-retraining-pipeline-inference:latest .
+
+# Mount model weights and data into minikube
+minikube mount ./models:/mnt/models &
+minikube mount ./mlruns:/mnt/mlruns &
+minikube mount .:/mnt/project &
+
+# Deploy all services
+kubectl apply -f k8s/
+
+# Get service URLs
+minikube service inference-service --url
+minikube service mlflow-service --url
+minikube service prometheus-service --url
+minikube service grafana-service --url
+
+# Trigger retraining manually
+kubectl create job retrain-test --from=cronjob/retrain-cronjob
+```
+
 ## API
 
 ```
@@ -87,3 +114,14 @@ Prometheus scrapes `/metrics` every 15 seconds. Key metrics:
 | `request_latency_seconds` | Full API request latency histogram |
 
 Grafana dashboards at `http://localhost:3000` visualize all metrics in real time.
+
+## Kubernetes Architecture
+
+```
+k8s/
+├── inference-deployment.yaml   → FastAPI server (Deployment + NodePort Service)
+├── mlflow-deployment.yaml      → MLflow UI (Deployment + NodePort Service)
+├── prometheus-deployment.yaml  → Prometheus (Deployment + ConfigMap + NodePort Service)
+├── grafana-deployment.yaml     → Grafana (Deployment + NodePort Service)
+└── retrain-cronjob.yaml        → Automated retraining (CronJob, runs hourly)
+```
