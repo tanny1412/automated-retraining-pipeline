@@ -204,7 +204,45 @@ At this scale (thousands of predictions), CSV is sufficient. No extra dependenci
 
 ---
 
+## Step 5 — Docker + CI/CD
+
+**Dockerfile** — inference-only container. Key decision: model weights are NOT baked into the image. They mount at runtime via Docker volume. This means retraining updates the model without rebuilding the image — critical for automated pipelines.
+
+**docker-compose.yml** — four services:
+- `inference` — FastAPI server
+- `mlflow` — experiment tracking UI
+- `prometheus` — metrics scraping every 15s
+- `grafana` — dashboards
+
+Shared volume (`./models:/app/models`) connects inference and training — same folder both read/write. This is the local equivalent of S3/model registry in production.
+
+**GitHub Actions CI** — two jobs on every push:
+1. `test` — installs deps, runs pytest (7 tests)
+2. `docker` — builds image, only runs if tests pass (`needs: test`)
+
+**Key lesson from CI:** `models/` is gitignored so `COPY models/` in Dockerfile failed in CI. Fix was removing it — models come in via volume, not baked into image. This is actually MORE correct: image = immutable code, weights = mutable data.
+
+---
+
+## Step 6 — Prometheus + Grafana
+
+Three metrics instrumented in `app.py`:
+- `predict_requests_total` — Counter, labeled by prediction class. Tracks volume and positive/negative split.
+- `predict_latency_seconds` — Histogram, measures model inference time only.
+- `request_latency_seconds` — Histogram, measures full request including CSV logging + response.
+
+**Why two latency metrics:** Inference latency isolates model performance. Request latency is what users actually experience. Comparing them shows overhead of non-ML work (CSV logging ≈ 0ms in practice).
+
+**MLflow vs Prometheus distinction:**
+- MLflow = offline, training-time. "Which run had best accuracy?"
+- Prometheus = live, serving-time. "How many requests right now, how fast?"
+- Both needed. A well-trained model can still be a poorly-operating service.
+
+**Prometheus scraping:** `prometheus.yml` points at `inference:8000/metrics`. Container name `inference` resolves via Docker's internal DNS — not localhost, not IP. This is how services communicate inside Docker networks.
+
+---
+
 ## Up Next
 
-- **Step 5:** Docker — containerize the full pipeline
-- **Step 6:** CI/CD with GitHub Actions
+- Download full Colab model and replace local models/
+- Kubernetes (optional — understand mapping: Compose → Deployments/Services/CronJobs)
