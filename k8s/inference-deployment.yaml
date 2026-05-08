@@ -19,8 +19,11 @@ spec:
           ports:
             - containerPort: 8000
           env:
-            - name: PREDICTIONS_LOG
-              value: "/app/data/predictions.csv"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DATABASE_URL
           resources:
             requests:
               cpu: "500m"
@@ -31,15 +34,10 @@ spec:
           volumeMounts:
             - name: models-volume
               mountPath: /app/models
-            - name: predictions-volume
-              mountPath: /app/data
       volumes:
         - name: models-volume
           persistentVolumeClaim:
             claimName: models-pvc
-        - name: predictions-volume
-          persistentVolumeClaim:
-            claimName: predictions-pvc
 ---
 apiVersion: v1
 kind: Service

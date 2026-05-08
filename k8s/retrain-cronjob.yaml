@@ -14,8 +14,11 @@ spec:
               imagePullPolicy: Always
               command: ["python", "retrain_if_needed.py"]
               env:
-                - name: PREDICTIONS_LOG
-                  value: "/app/data/predictions.csv"
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-secret
+                      key: DATABASE_URL
               resources:
                 requests:
                   cpu: "250m"
@@ -26,14 +29,9 @@ spec:
               volumeMounts:
                 - name: models
                   mountPath: /app/models
-                - name: predictions
-                  mountPath: /app/data
 
           restartPolicy: OnFailure
           volumes:
             - name: models
               persistentVolumeClaim:
                 claimName: models-pvc
-            - name: predictions
-              persistentVolumeClaim:
-                claimName: predictions-pvc
