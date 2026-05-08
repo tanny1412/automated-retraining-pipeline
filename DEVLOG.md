@@ -242,7 +242,45 @@ Three metrics instrumented in `app.py`:
 
 ---
 
+## Step 7 — Kubernetes
+
+Migrated the full docker-compose stack to Kubernetes running on minikube locally.
+
+**The core mapping:**
+
+| Docker Compose | Kubernetes |
+|---|---|
+| `service:` block | `Deployment` + `Service` |
+| `ports:` | `Service` (NodePort) |
+| `volumes:` | `hostPath` volume + `minikube mount` |
+| `environment:` | `env:` in container spec |
+
+**4 files built in `k8s/`:**
+- `inference-deployment.yaml` — FastAPI server, model weights mounted via hostPath
+- `mlflow-deployment.yaml` — MLflow UI, mlruns mounted via hostPath
+- `prometheus-deployment.yaml` — Prometheus with a ConfigMap holding the scrape config
+- `grafana-deployment.yaml` — Grafana with admin password set via env var
+
+**Why ConfigMap for Prometheus:**
+In Compose you mount a single file (`./prometheus.yml`). Kubernetes can't mount individual files from your Mac directly. Instead you store the config in a ConfigMap — a Kubernetes object that holds key-value data — and mount that as a volume. Same result, different mechanism.
+
+**Why `imagePullPolicy: Never` for inference:**
+The inference image is built locally inside minikube's Docker daemon (via `eval $(minikube docker-env)`). Without this flag, Kubernetes tries to pull from DockerHub and fails with "image not found".
+
+**Why `minikube mount`:**
+minikube runs inside a Docker VM on Mac. `hostPath` volumes point to paths inside that VM, not your Mac. `minikube mount ./models:/mnt/models` bridges the gap — it makes your Mac's folder visible inside the VM.
+
+**OOMKilled lesson:**
+First deployment crashed with `OOMKilled` — memory limit was set to 1Gi but DistilBERT needs ~2-3Gi to load. Fixed by raising the limit to 3Gi. Always size memory limits for ML models generously.
+
+**NodePort vs the tunnel:**
+Set `nodePort: 30800` but `minikube service --url` returned a different port (e.g. 59997). On minikube with the Docker driver, you can't reach the VM's NodePort directly — Docker is in the way. `minikube service --url` creates a tunnel through Docker and assigns a random localhost port. On a real cloud cluster, NodePort is directly accessible on the node IP.
+
+**Feature branch workflow:**
+Built everything on `feature/kubernetes`, opened a PR on GitHub, merged into main — same flow as a real team.
+
+---
+
 ## Up Next
 
 - Download full Colab model and replace local models/
-- Kubernetes (optional — understand mapping: Compose → Deployments/Services/CronJobs)
