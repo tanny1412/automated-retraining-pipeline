@@ -8,7 +8,8 @@ A self-healing ML system running on real AWS infrastructure:
 
 - DistilBERT served via a public URL on AWS (not localhost)
 - Model weights persisted on EBS — survives pod restarts
-- Automated hourly retraining via Kubernetes CronJob
+- Model weights stored on S3 — init container downloads latest on every pod start
+- Automated hourly retraining via Kubernetes CronJob — uploads new weights to S3 after each run
 - Drift detection monitoring every prediction via PostgreSQL
 - MLflow tracking all experiments
 - Prometheus + Grafana dashboards live on AWS
@@ -29,7 +30,8 @@ Most candidates have notebooks. Some have Docker. Very few have Kubernetes on re
 - **CI/CD:** GitHub Actions — automated testing + Docker build on every push
 - **Prediction Storage:** PostgreSQL — stores every prediction with timestamp, text, label, confidence
 - **Monitoring:** Prometheus (metrics scraping) + Grafana (real-time dashboards)
-- **Orchestration:** Kubernetes — Deployments, Services, ConfigMaps, CronJob
+- **Orchestration:** Kubernetes — Deployments, StatefulSets, Services, ConfigMaps, Secrets, CronJob
+- **Model Storage:** S3 — single source of truth for best model weights, init container downloads on pod start
 - **Device:** CUDA / Apple MPS / CPU (auto-detected)
 
 ## Project Phases
@@ -44,6 +46,7 @@ Most candidates have notebooks. Some have Docker. Very few have Kubernetes on re
 | 6 | Prometheus + Grafana | Done |
 | 7 | Kubernetes orchestration | Done |
 | 8 | PostgreSQL prediction logging | Done |
+| 9 | S3 model storage + init container | Done |
 
 ## How It Works
 
@@ -53,7 +56,7 @@ app.py               → serves predictions via FastAPI, logs every request to P
 evaluate.py          → measures current model accuracy on validation set
 drift_detector.py    → checks confidence drop + prediction distribution shift
 retrain_if_needed.py → orchestrates full loop:
-                         check drift → check accuracy → retrain → hot-reload API
+                         check drift → check accuracy → retrain → upload to S3 → hot-reload API
 ```
 
 ## Quickstart
@@ -133,9 +136,12 @@ Grafana dashboards at `http://localhost:3000` visualize all metrics in real time
 
 ```
 k8s/
-├── inference-deployment.yaml   → FastAPI server (Deployment + NodePort Service)
+├── inference-deployment.yaml   → FastAPI server (Deployment + LoadBalancer Service + S3 init container)
 ├── mlflow-deployment.yaml      → MLflow UI (Deployment + NodePort Service)
 ├── prometheus-deployment.yaml  → Prometheus (Deployment + ConfigMap + NodePort Service)
 ├── grafana-deployment.yaml     → Grafana (Deployment + NodePort Service)
-└── retrain-cronjob.yaml        → Automated retraining (CronJob, runs hourly)
+├── postgres-statefulset.yaml   → PostgreSQL (StatefulSet + headless Service)
+├── postgres-secret.yaml        → DB credentials (Kubernetes Secret)
+├── volumes.yaml                → PVCs for models and MLflow runs (EBS gp2)
+└── retrain-cronjob.yaml        → Automated retraining (CronJob, runs hourly, uploads to S3)
 ```

@@ -449,24 +449,70 @@ Same code, different config per environment. 12-factor app principle.
 
 ---
 
-## Up Next
+---
 
-- Add PostgreSQL to Kubernetes (StatefulSet + Secret)
-- Deploy updated stack to EKS
+## Step 10 — PostgreSQL on Kubernetes + S3 Model Storage
 
-### Future Improvement: S3 Model Storage
+### PostgreSQL on Kubernetes
 
-Currently using `kubectl cp` to manually copy model weights into the EBS volume — not production-grade.
+Added PostgreSQL to the Kubernetes stack using a StatefulSet instead of a Deployment.
 
-**Production pattern:**
-1. `train.py` uploads weights to S3 after training (`boto3.upload_file`)
-2. Add an **init container** to the inference Deployment — runs before the main container, downloads weights from S3 into the shared volume
-3. Main container starts only after init container completes
+**Why StatefulSet over Deployment for PostgreSQL:**
+
+| Deployment | StatefulSet |
+|---|---|
+| Pods are interchangeable | Each pod has a stable identity (`postgres-0`) |
+| All replicas share one PVC | Each pod gets its own PVC via `volumeClaimTemplates` |
+| Suitable for stateless apps | Required for databases |
+
+**3 files added:**
+- `postgres-secret.yaml` — stores `POSTGRES_PASSWORD` and `DATABASE_URL` as a Kubernetes Secret. Secrets are base64-encoded at rest. `stringData` lets you write plain text — Kubernetes encodes it automatically.
+- `postgres-statefulset.yaml` — StatefulSet + headless Service (`clusterIP: None`). Headless service gives each pod a stable DNS name (`postgres-0.postgres-service`) instead of routing through a virtual IP.
+- Updated `inference-deployment.yaml` and `retrain-cronjob.yaml` — `DATABASE_URL` now injected from the Secret via `secretKeyRef` instead of hardcoded. Removed `predictions-pvc` — no more CSV file.
+
+**How the Secret flows:**
+```
+postgres-secret → POSTGRES_PASSWORD → PostgreSQL pod (sets DB password on init)
+postgres-secret → DATABASE_URL      → inference pod + CronJob (os.environ.get override)
+```
+
+**`volumeClaimTemplates` vs referencing an existing PVC:**
+The StatefulSet creates `postgres-data-postgres-0` automatically — you don't create a PVC manually in `volumes.yaml`. This is how StatefulSets bind each pod to dedicated storage permanently, even across restarts.
+
+---
+
+### S3 Model Storage + Init Container
+
+Replaced the manual `kubectl cp` model loading process with a proper automated flow using S3 and a Kubernetes init container.
+
+**The problem with manual copy:**
+Every new cluster required running a busybox loader pod to copy model weights into the empty EBS PVC — not automated, not repeatable, not production-grade.
+
+**The solution — S3 as single source of truth:**
 
 ```
-train.py → s3://bucket/models/best_model.pt
-pod starts → init container: aws s3 cp s3://bucket/models/ /app/models/
-main container starts → model already on disk, no manual copy needed
+First deploy:
+  aws s3 cp models/ s3://ml-pipeline-models-tanish/models/ --recursive (once, manual)
+
+Every retrain (CronJob):
+  train.py saves new weights → /app/models/
+  upload_model_to_s3() → pushes to S3
+
+Every pod restart:
+  init container → aws s3 cp s3://.../ /app/models/ --recursive
+  inference container starts → weights already on disk
 ```
 
-This means every retrain automatically makes the new weights available on next pod restart — zero manual intervention, true closed loop.
+**Why the init container needs the same volumeMount as the inference container:**
+Init container and inference container don't share a filesystem automatically. Both must mount the same PVC (`models-volume`) at `/app/models/`. The init container writes to EBS via the PVC; the inference container reads from EBS via the same PVC. Without the mount in the init container, downloaded files disappear when it exits.
+
+**`retrain_if_needed.py` update:**
+Added `upload_model_to_s3()` — calls `aws s3 cp models/ s3://ml-pipeline-models-tanish/models/ --recursive` after every successful retrain. S3 is always kept at the latest trained model, not the original hand-uploaded baseline.
+
+**IAM permission:**
+EKS nodes need `AmazonS3ReadOnlyAccess` attached to the node group's IAM role so the init container's `aws s3 cp` call is authorized. The CronJob needs write access (`AmazonS3FullAccess` or a scoped policy) to upload after retraining.
+
+**Hot-reload vs init container — two different mechanisms:**
+- Init container: runs on pod restart, downloads from S3 → handles cold start
+- `/reload` endpoint: called by CronJob after retrain, swaps weights in memory → handles live update without restart
+Both are needed. Init container is the safety net for restarts; hot-reload is the fast path during normal operation.
