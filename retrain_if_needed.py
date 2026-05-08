@@ -31,6 +31,17 @@ def retrain(epochs=3, batch_size=16):
     else:
         logger.error("Retraining failed")
 
+def upload_model_to_s3(bucket="ml-pipeline-models-tanish"):
+    logger.info("Uploading new model weights to S3...")
+    result = subprocess.run(
+        ["aws", "s3", "cp", "models/", f"s3://{bucket}/models/", "--recursive"],
+        capture_output=False
+    )
+    if result.returncode == 0:
+        logger.info("Model weights uploaded to S3")
+    else:
+        logger.error("S3 upload failed — new weights not persisted to S3")
+
 def notify_api_reload(api_url="http://localhost:8000"):
     try:
         req = urllib.request.Request(f"{api_url}/reload", method="POST")
@@ -51,4 +62,5 @@ if __name__ == "__main__":
         if not healthy:
             logger.info("Accuracy below threshold — triggering retraining")
         retrain(epochs=3, batch_size=16)
+        upload_model_to_s3()
         notify_api_reload()

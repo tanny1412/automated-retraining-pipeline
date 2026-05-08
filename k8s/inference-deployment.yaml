@@ -12,6 +12,19 @@ spec:
       labels:
         app: inference-app
     spec:
+      initContainers:
+        - name: model-loader
+          image: amazon/aws-cli:latest
+          command:
+            - aws
+            - s3
+            - cp
+            - s3://ml-pipeline-models-tanish/models/
+            - /app/models/
+            - --recursive
+          volumeMounts:
+            - name: models-volume
+              mountPath: /app/models
       containers:
         - name: inference-container
           image: 354578186384.dkr.ecr.us-east-1.amazonaws.com/ml-pipeline-inference:latest
