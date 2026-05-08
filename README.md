@@ -9,10 +9,11 @@ A self-healing ML system running on real AWS infrastructure:
 - DistilBERT served via a public URL on AWS (not localhost)
 - Model weights persisted on EBS — survives pod restarts
 - Automated hourly retraining via Kubernetes CronJob
-- Drift detection monitoring every prediction
+- Drift detection monitoring every prediction via PostgreSQL
 - MLflow tracking all experiments
 - Prometheus + Grafana dashboards live on AWS
 - CI/CD pipeline that builds, tests, and pushes to ECR on every commit
+- PostgreSQL for prediction logging — replaces CSV, supports querying and scale
 
 **What makes this rare for a portfolio project:**
 Most candidates have notebooks. Some have Docker. Very few have Kubernetes on real cloud infrastructure with persistent storage, IAM roles, CSI drivers, and a CI/CD pipeline attached.
@@ -26,6 +27,7 @@ Most candidates have notebooks. Some have Docker. Very few have Kubernetes on re
 - **Drift Detection:** Confidence degradation + prediction distribution shift monitoring
 - **Containerization:** Docker + docker-compose
 - **CI/CD:** GitHub Actions — automated testing + Docker build on every push
+- **Prediction Storage:** PostgreSQL — stores every prediction with timestamp, text, label, confidence
 - **Monitoring:** Prometheus (metrics scraping) + Grafana (real-time dashboards)
 - **Orchestration:** Kubernetes — Deployments, Services, ConfigMaps, CronJob
 - **Device:** CUDA / Apple MPS / CPU (auto-detected)
@@ -41,12 +43,13 @@ Most candidates have notebooks. Some have Docker. Very few have Kubernetes on re
 | 5 | Docker + CI/CD | Done |
 | 6 | Prometheus + Grafana | Done |
 | 7 | Kubernetes orchestration | Done |
+| 8 | PostgreSQL prediction logging | Done |
 
 ## How It Works
 
 ```
 train.py             → fine-tunes DistilBERT, logs to MLflow, saves model
-app.py               → serves predictions via FastAPI, logs every request to CSV
+app.py               → serves predictions via FastAPI, logs every request to PostgreSQL
 evaluate.py          → measures current model accuracy on validation set
 drift_detector.py    → checks confidence drop + prediction distribution shift
 retrain_if_needed.py → orchestrates full loop:

@@ -404,10 +404,55 @@ Commit SHA tagging enables rollback — `kubectl set image` with a previous SHA 
 
 ---
 
+## Step 9 — PostgreSQL Prediction Logging
+
+Replaced CSV-based prediction logging with PostgreSQL. Every prediction is now stored in a relational database instead of appended to a flat file.
+
+**Why PostgreSQL over CSV:**
+
+| CSV | PostgreSQL |
+|---|---|
+| No concurrent writes | Handles concurrent writes safely |
+| Full file scan to query | Indexed queries |
+| Corrupts under load | ACID transactions |
+| No schema enforcement | Typed columns |
+| Hard to filter/aggregate | Full SQL |
+
+**New `db/` package:**
+```
+db/
+├── __init__.py
+├── database.py     → SQLAlchemy engine + session factory
+├── dependencies.py → get_db() for FastAPI dependency injection
+└── models.py       → Prediction table definition
+```
+
+**Why dependency injection for DB sessions:**
+FastAPI's `Depends(get_db)` automatically creates a session before each request and closes it after — even if an error occurs. No manual session management in every route.
+
+**Why `Base.metadata.create_all(bind=engine)` on startup:**
+SQLAlchemy reads all models inheriting from `Base` and creates tables if they don't exist. No manual `CREATE TABLE` SQL needed. Safe to call on every restart — uses `IF NOT EXISTS`.
+
+**Why `lambda: datetime.now(timezone.utc)` instead of `datetime.utcnow`:**
+`datetime.utcnow` is deprecated in Python 3.12+. The `lambda` is required so SQLAlchemy calls it at insert time — without it, all rows would get the same timestamp (when the class was defined).
+
+**Docker Compose change:**
+Added `postgres` service with a named volume (`postgres_data`) so data persists across restarts. Inference container gets `DATABASE_URL` env var pointing to `postgres:5432` — Docker's internal DNS resolves service names automatically.
+
+**Environment-based config:**
+```
+Local Mac    → DATABASE_URL not set → uses localhost:5432 default
+Docker       → DATABASE_URL=postgresql://postgres:postgres@postgres:5432/predictions
+Kubernetes   → DATABASE_URL from Secret → postgres-service:5432
+```
+Same code, different config per environment. 12-factor app principle.
+
+---
+
 ## Up Next
 
-- Download full Colab model and replace local models/
-- Delete cluster after testing to avoid AWS charges (`eksctl delete cluster --name ml-pipeline`)
+- Add PostgreSQL to Kubernetes (StatefulSet + Secret)
+- Deploy updated stack to EKS
 
 ### Future Improvement: S3 Model Storage
 
