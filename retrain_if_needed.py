@@ -52,7 +52,7 @@ def notify_api_reload(api_url="http://localhost:8000"):
 
 if __name__ == "__main__":
     drift = check_drift()
-    healthy = check_model_health(threshold=0.80)
+    healthy = check_model_health(threshold=0.95)
 
     if not drift and healthy:
         logger.info("No drift, model is healthy — no retraining needed")
