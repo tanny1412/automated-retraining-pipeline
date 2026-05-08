@@ -53,3 +53,8 @@ jobs:
           docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Deploy to EKS
+        run: |
+          aws eks update-kubeconfig --name ml-pipeline --region us-east-1
+          kubectl rollout restart deployment/inference-deployment
