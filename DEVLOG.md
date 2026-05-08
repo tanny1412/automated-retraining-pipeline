@@ -516,3 +516,41 @@ EKS nodes need `AmazonS3ReadOnlyAccess` attached to the node group's IAM role so
 - Init container: runs on pod restart, downloads from S3 → handles cold start
 - `/reload` endpoint: called by CronJob after retrain, swaps weights in memory → handles live update without restart
 Both are needed. Init container is the safety net for restarts; hot-reload is the fast path during normal operation.
+
+---
+
+## Step 11 — EKS Redeployment with PostgreSQL + S3
+
+Deployed the full updated stack (PostgreSQL + S3 init container) to a fresh EKS cluster.
+
+**Problem 1: IAM service account conflict from old cluster**
+Creating the new cluster with the same name `ml-pipeline` left behind the old IAM service account CloudFormation stack. eksctl saw it already existed and skipped creating a new one. But the old role had the old cluster's OIDC provider in its trust policy — AWS rejected all requests with `AccessDenied: Not authorized to perform sts:AssumeRoleWithWebIdentity`.
+
+Fix: delete the leftover CloudFormation stack from the AWS console (`eksctl-ml-pipeline-addon-iamserviceaccount-kube-system-ebs-csi-controller-sa`), then recreate the IAM service account fresh for the new cluster.
+
+**Lesson:** When deleting a cluster, always use `eksctl delete cluster` — not the console. eksctl cleans up all associated IAM resources automatically. Console delete only removes the cluster itself. Alternatively, use a new cluster name each time to avoid all conflicts.
+
+**Problem 2: EBS CSI driver stuck in CREATE_FAILED**
+The driver kept failing because it was picking up the old OIDC-linked role. Fixed by explicitly passing `--service-account-role-arn` with the newly created role ARN when recreating the addon.
+
+**Problem 3: Postgres CrashLoopBackOff — `lost+found` directory**
+PostgreSQL failed to initialize with:
+```
+initdb: error: directory "/var/lib/postgresql/data" exists but is not empty
+initdb: detail: It contains a lost+found directory, perhaps due to it being a mount point.
+```
+EBS volumes have a `lost+found` directory at the root. PostgreSQL refuses to initialize in a non-empty directory.
+
+Fix: added `PGDATA=/var/lib/postgresql/data/pgdata` env var — tells Postgres to use a subdirectory instead of the EBS root.
+
+**Problem 4: Two `env:` blocks in StatefulSet YAML**
+When adding `PGDATA`, accidentally created a second `env:` block instead of adding to the existing one. YAML doesn't error on duplicate keys — the second block silently overwrites the first, wiping out `POSTGRES_PASSWORD`. Postgres crashed with "superuser password is not specified."
+
+Fix: merge both env vars into a single `env:` block.
+
+**Problem 5: Inference pod DNS failure — `postgres-service` not found**
+Inference pod started before Postgres DNS was registered. `app.py` calls `Base.metadata.create_all()` at startup which immediately tries to connect to `postgres-service` — failed with `could not translate host name "postgres-service"`.
+
+Fix: delete the inference pod after Postgres is Running — Kubernetes restarts it and DNS resolves correctly.
+
+**Final state:** All pods Running — inference, postgres, mlflow, prometheus, grafana, retrain CronJob. Inference serving predictions via public AWS LoadBalancer URL.

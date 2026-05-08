@@ -47,6 +47,7 @@ Most candidates have notebooks. Some have Docker. Very few have Kubernetes on re
 | 7 | Kubernetes orchestration | Done |
 | 8 | PostgreSQL prediction logging | Done |
 | 9 | S3 model storage + init container | Done |
+| 10 | Full EKS deployment with PostgreSQL + S3 | Done |
 
 ## How It Works
 
