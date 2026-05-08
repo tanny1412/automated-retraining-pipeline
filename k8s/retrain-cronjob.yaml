@@ -10,9 +10,12 @@ spec:
         spec:
           containers:
             - name: retrain
-              image: automated-retraining-pipeline-inference:latest
-              imagePullPolicy: Never
+              image: 354578186384.dkr.ecr.us-east-1.amazonaws.com/ml-pipeline-inference:latest
+              imagePullPolicy: Always
               command: ["python", "retrain_if_needed.py"]
+              env:
+                - name: PREDICTIONS_LOG
+                  value: "/app/data/predictions.csv"
               resources:
                 requests:
                   cpu: "250m"
@@ -24,16 +27,13 @@ spec:
                 - name: models
                   mountPath: /app/models
                 - name: predictions
-                  mountPath: /app/predictions.csv
-                  subPath: predictions.csv
+                  mountPath: /app/data
 
           restartPolicy: OnFailure
           volumes:
             - name: models
-              hostPath:
-                path: /mnt/models
-                type: Directory
+              persistentVolumeClaim:
+                claimName: models-pvc
             - name: predictions
-              hostPath:
-                path: /mnt/project
-                type: DirectoryOrCreate
+              persistentVolumeClaim:
+                claimName: predictions-pvc
