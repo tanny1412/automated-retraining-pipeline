@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow-app
+  template:
+    metadata:
+      labels:
+        app: mlflow-app
+    spec:
+      containers:
+        - name: mlflow-container
+          image: ghcr.io/mlflow/mlflow:v2.21.3
+          ports:
+            - containerPort: 5000
+          command: ["mlflow", "server", "--host", "0.0.0.0", "--port", "5000"]
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: mlruns
+              mountPath: /mlruns
+      volumes:
+        - name: mlruns
+          hostPath:
+            path: /mnt/mlruns
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow-service
+spec:
+  type: NodePort
+  selector:
+    app: mlflow-app
+  ports:
+    - port: 5000
+      targetPort: 5000
+      nodePort: 30500
