@@ -4,8 +4,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from drift_detector import detect_drift
 
+class FakePrediction:
+    def __init__(self, prediction, confidence):
+        self.prediction = prediction
+        self.confidence = float(confidence)
+
 def make_predictions(count, prediction="positive", confidence=0.95):
-    return [{"prediction": prediction, "confidence": str(confidence)} for _ in range(count)]
+    return [FakePrediction(prediction, confidence) for _ in range(count)]
 
 def test_not_enough_predictions():
     predictions = make_predictions(5)
