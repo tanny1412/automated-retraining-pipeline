@@ -9,3 +9,5 @@ pyarrow>=21,<24
 pytest
 httpx
 prometheus-client
+sqlalchemy
+psycopg2-binary

@@ -1,37 +1,33 @@
-import csv
 import logging
-import os
+from db.database import SessionLocal
+from db.models import Prediction
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s — %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
 
-PREDICTIONS_LOG = "predictions.csv"
 BASELINE_CONFIDENCE = 0.90
 BASELINE_POSITIVE_RATIO = 0.50
 CONFIDENCE_THRESHOLD = 0.10
 DISTRIBUTION_THRESHOLD = 0.20
 
 def load_predictions():
-    if not os.path.exists(PREDICTIONS_LOG):
-        logger.warning("No predictions log found — no drift data available")
-        return []
-
-    with open(PREDICTIONS_LOG, "r") as f:
-        reader = csv.DictReader(f)
-        rows = list(reader)
-
-    logger.info(f"Loaded {len(rows)} predictions from log")
-    return rows
+    db = SessionLocal()                                                                                                                                                                                                         
+    try:                         
+        rows = db.query(Prediction).all()                                                                                                                                                                                       
+        logger.info(f"Loaded {len(rows)} predictions from database")
+        return rows                          
+    finally:                                
+        db.close() 
 
 def detect_drift(predictions):
     if len(predictions) < 10:
         logger.info("Not enough predictions to detect drift — need at least 10")
         return False
 
-    confidences = [float(row["confidence"]) for row in predictions]
+    confidences = [row.confidence for row in predictions]
     avg_confidence = sum(confidences) / len(confidences)
 
-    positive_count = sum(1 for row in predictions if row["prediction"] == "positive")
+    positive_count = sum(1 for row in predictions if row.prediction == "positive")
     positive_ratio = positive_count / len(predictions)
 
     confidence_drop = BASELINE_CONFIDENCE - avg_confidence

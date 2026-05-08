@@ -1,11 +1,25 @@
 services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: predictions
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   inference:
     build: .
     ports:
       - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/predictions
     volumes:
       - ./models:/app/models
-      - ./predictions.csv:/app/predictions.csv
+    depends_on:
+      - postgres
 
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.21.3
@@ -29,3 +43,6 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
+
+volumes:
+  postgres_data:

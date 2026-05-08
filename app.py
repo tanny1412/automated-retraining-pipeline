@@ -1,25 +1,19 @@
-import csv
 import os
 import torch
-from datetime import datetime
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Response, Depends
+from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from db.database import engine
+from db.models import Base, Prediction
+from db.dependencies import get_db
 
 PREDICT_COUNT = Counter("predict_requests_total", "Total prediction requests", ["prediction"])
 PREDICT_LATENCY = Histogram("predict_latency_seconds", "Model inference latency")
 REQUEST_LATENCY = Histogram("request_latency_seconds", "Full API request latency")
 
-PREDICTIONS_LOG = os.environ.get("PREDICTIONS_LOG", "predictions.csv")
-
-def init_log():
-    if not os.path.exists(PREDICTIONS_LOG):
-        with open(PREDICTIONS_LOG, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["timestamp", "text", "prediction", "confidence"])
-
-init_log()
+Base.metadata.create_all(bind=engine) 
 
 app = FastAPI()
 
@@ -55,7 +49,7 @@ def reload_model():
     return {"status": "model reloaded"}
 
 @app.post("/predict", response_model=PredictResponse)
-def predict(request: PredictRequest):
+def predict(request: PredictRequest, db: Session = Depends(get_db)):
     with REQUEST_LATENCY.time():
         with PREDICT_LATENCY.time():
             inputs = tokenizer(request.text, return_tensors="pt", truncation=True, padding="max_length", max_length=128)
@@ -72,9 +66,10 @@ def predict(request: PredictRequest):
 
         PREDICT_COUNT.labels(prediction=label).inc()
 
-        with open(PREDICTIONS_LOG, "a", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([datetime.now().isoformat(), request.text, label, conf])
+        record = Prediction(text=request.text, prediction=label, confidence=conf)
+
+        db.add(record)
+        db.commit()
 
         return PredictResponse(prediction=label, confidence=conf)
 
