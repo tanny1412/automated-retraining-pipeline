@@ -9,6 +9,7 @@ COPY app.py .
 COPY retrain_if_needed.py .
 COPY evaluate.py .
 COPY drift_detector.py .
+COPY db/ ./db/
 
 EXPOSE 8000
 
