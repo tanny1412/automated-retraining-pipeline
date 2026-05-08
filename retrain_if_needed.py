@@ -1,4 +1,5 @@
 import logging
+import os
 import subprocess
 import sys
 import urllib.request
@@ -22,10 +23,11 @@ def check_model_health(threshold=0.90):
 
 def retrain(epochs=3, batch_size=16):
     logger.info("Starting retraining...")
-    result = subprocess.run(
-        [sys.executable, "train.py", "--epochs", str(epochs), "--batch-size", str(batch_size)],
-        capture_output=False
-    )
+    cmd = [sys.executable, "train.py", "--epochs", str(epochs), "--batch-size", str(batch_size)]
+    max_samples = os.environ.get("MAX_SAMPLES")
+    if max_samples:
+        cmd += ["--max-samples", max_samples]
+    result = subprocess.run(cmd, capture_output=False)
     if result.returncode == 0:
         logger.info("Retraining complete — new model saved to models/")
     else:
