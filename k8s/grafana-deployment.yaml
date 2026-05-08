@@ -33,10 +33,9 @@ kind: Service
 metadata:
   name: grafana-service
 spec:
-  type: NodePort
+  type: LoadBalancer
   selector:
     app: grafana
   ports:
     - port: 3000
       targetPort: 3000
-      nodePort: 30300

@@ -30,19 +30,17 @@ spec:
               mountPath: /mlruns
       volumes:
         - name: mlruns
-          hostPath:
-            path: /mnt/mlruns
-            type: DirectoryOrCreate
+          persistentVolumeClaim:
+            claimName: mlruns-pvc
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: mlflow-service
 spec:
-  type: NodePort
+  type: LoadBalancer
   selector:
     app: mlflow-app
   ports:
     - port: 5000
       targetPort: 5000
-      nodePort: 30500

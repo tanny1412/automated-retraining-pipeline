@@ -14,8 +14,8 @@ spec:
     spec:
       containers:
         - name: inference-container
-          image: automated-retraining-pipeline-inference:latest
-          imagePullPolicy: Never
+          image: 354578186384.dkr.ecr.us-east-1.amazonaws.com/ml-pipeline-inference:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8000
           resources:
@@ -28,24 +28,25 @@ spec:
           volumeMounts:
             - name: models-volume
               mountPath: /app/models
+            - name: predictions-volume
+              mountPath: /app/predictions.csv
+              subPath: predictions.csv
       volumes:
         - name: models-volume
-          hostPath:
-            path: /mnt/models
-            type: Directory
-
+          persistentVolumeClaim:
+            claimName: models-pvc
+        - name: predictions-volume
+          persistentVolumeClaim:
+            claimName: predictions-pvc
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: inference-service
 spec:
-  type: NodePort
+  type: LoadBalancer
   selector:
     app: inference-app
   ports:
     - port: 8000
       targetPort: 8000
-      nodePort: 30800
-
-    
