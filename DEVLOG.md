@@ -281,6 +281,32 @@ Built everything on `feature/kubernetes`, opened a PR on GitHub, merged into mai
 
 ---
 
+### CronJob — Automated Retraining on Kubernetes
+
+Added `k8s/retrain-cronjob.yaml` to close the retraining loop inside Kubernetes.
+
+**What it does:** Runs `retrain_if_needed.py` on a schedule (`0 * * * *` = every hour). Kubernetes spins up a pod, runs the script, pod exits. If drift or low accuracy is detected, it retrains and hot-reloads the API.
+
+**Why `kind: CronJob` and not `kind: Deployment`:**
+- Deployments run forever — they restart if the pod exits
+- CronJobs run on a schedule and exit — `restartPolicy: OnFailure` instead of `Always`
+- CronJob → Job → Pod is the nesting. Job tracks completion, CronJob handles scheduling
+
+**Why reuse the inference image:**
+The inference image already has all dependencies installed. Adding the retraining scripts (`retrain_if_needed.py`, `evaluate.py`, `drift_detector.py`) to the same image with `COPY` avoids maintaining a second Dockerfile.
+
+**CPU vs MPS lesson:**
+Locally `evaluate.py` runs on Apple MPS (fast). Inside the container it runs on CPU with 0.5 cores (slow). In production you'd schedule this on a GPU node. The logic is correct — it's a resource constraint, not a bug.
+
+**How to trigger manually (without waiting for the hour):**
+```bash
+kubectl create job retrain-test --from=cronjob/retrain-cronjob
+kubectl logs <pod-name> -f
+```
+
+---
+
 ## Up Next
 
 - Download full Colab model and replace local models/
+- Deploy to EKS (swap hostPath → PVC, NodePort → LoadBalancer, push image to ECR)
