@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: retrain-cronjob
+spec:
+  schedule: "0 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: retrain
+              image: automated-retraining-pipeline-inference:latest
+              imagePullPolicy: Never
+              command: ["python", "retrain_if_needed.py"]
+              resources:
+                requests:
+                  cpu: "250m"
+                  memory: "1Gi"
+                limits:
+                  cpu: "500m"
+                  memory: "3Gi"
+              volumeMounts:
+                - name: models
+                  mountPath: /app/models
+                - name: predictions
+                  mountPath: /app/predictions.csv
+                  subPath: predictions.csv
+
+          restartPolicy: OnFailure
+          volumes:
+            - name: models
+              hostPath:
+                path: /mnt/models
+                type: Directory
+            - name: predictions
+              hostPath:
+                path: /mnt/project
+                type: DirectoryOrCreate

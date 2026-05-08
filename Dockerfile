@@ -6,6 +6,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
+COPY retrain_if_needed.py .
+COPY evaluate.py .
+COPY drift_detector.py .
 
 EXPOSE 8000
 
