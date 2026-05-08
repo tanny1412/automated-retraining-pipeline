@@ -4,7 +4,18 @@ An end-to-end MLOps platform demonstrating automated model retraining, experimen
 
 ## What This Builds
 
-A closed-loop MLOps pipeline where a DistilBERT sentiment classifier is continuously monitored, evaluated, and autonomously retrained when performance degrades — with zero manual intervention.
+A self-healing ML system running on real AWS infrastructure:
+
+- DistilBERT served via a public URL on AWS (not localhost)
+- Model weights persisted on EBS — survives pod restarts
+- Automated hourly retraining via Kubernetes CronJob
+- Drift detection monitoring every prediction
+- MLflow tracking all experiments
+- Prometheus + Grafana dashboards live on AWS
+- CI/CD pipeline that builds, tests, and pushes to ECR on every commit
+
+**What makes this rare for a portfolio project:**
+Most candidates have notebooks. Some have Docker. Very few have Kubernetes on real cloud infrastructure with persistent storage, IAM roles, CSI drivers, and a CI/CD pipeline attached.
 
 ## Stack
 
