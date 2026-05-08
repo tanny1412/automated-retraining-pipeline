@@ -363,6 +363,22 @@ eksctl create iamserviceaccount \
   --override-existing-serviceaccounts
 ```
 
+**Problem 5: models/tokenizer not found — EBS volume empty on first start**
+Pod crashed with `models/tokenizer is not a local folder`. The EBS volume was provisioned empty — no model weights on it yet. `kubectl cp` is the manual fix for initial setup.
+
+Used a `busybox` loader pod to copy files into the PVC without a race condition:
+```bash
+kubectl run model-loader --image=busybox --restart=Never \
+  --overrides='{"spec":{"containers":[{"name":"model-loader","image":"busybox","command":["sleep","3600"],"volumeMounts":[{"name":"models","mountPath":"/app/models"}]}],"volumes":[{"name":"models","persistentVolumeClaim":{"claimName":"models-pvc"}}]}}'
+kubectl cp models/ model-loader:/app/models/
+kubectl exec model-loader -- sh -c "mv /app/models/models/* /app/models/ && rm -rf /app/models/models"
+kubectl delete pod model-loader
+```
+
+Note: `kubectl cp` creates a nested directory (`models/models/`) — always verify with `kubectl exec -- ls` and move files up if needed.
+
+Long-term fix: use an init container that pulls weights from S3 on pod startup. See "Future Improvement" section below.
+
 **Problem 4: exec format error — ARM vs x86 architecture mismatch**
 Inference pod crashed immediately with `exec format error`. The Docker image was built on an M2 Mac (ARM architecture) but EKS t3.medium nodes run x86 (AMD64). ARM binaries cannot execute on x86.
 
@@ -391,5 +407,21 @@ Commit SHA tagging enables rollback — `kubectl set image` with a previous SHA 
 ## Up Next
 
 - Download full Colab model and replace local models/
-- Copy model weights into EBS volume after cluster is up (`kubectl cp`)
 - Delete cluster after testing to avoid AWS charges (`eksctl delete cluster --name ml-pipeline`)
+
+### Future Improvement: S3 Model Storage
+
+Currently using `kubectl cp` to manually copy model weights into the EBS volume — not production-grade.
+
+**Production pattern:**
+1. `train.py` uploads weights to S3 after training (`boto3.upload_file`)
+2. Add an **init container** to the inference Deployment — runs before the main container, downloads weights from S3 into the shared volume
+3. Main container starts only after init container completes
+
+```
+train.py → s3://bucket/models/best_model.pt
+pod starts → init container: aws s3 cp s3://bucket/models/ /app/models/
+main container starts → model already on disk, no manual copy needed
+```
+
+This means every retrain automatically makes the new weights available on next pod restart — zero manual intervention, true closed loop.
