@@ -11,7 +11,7 @@ A self-healing ML system running on real AWS infrastructure:
 - Model weights stored on S3 — init container downloads latest on every pod start
 - Automated hourly retraining via Kubernetes CronJob — uploads new weights to S3 after each run
 - Drift detection monitoring every prediction via PostgreSQL
-- MLflow tracking all experiments
+- MLflow tracking all experiments + Model Registry managing production lifecycle (versioning, promotion, rollback)
 - Prometheus + Grafana dashboards live on AWS
 - CI/CD pipeline that builds, tests, and pushes to ECR on every commit
 - PostgreSQL for prediction logging — replaces CSV, supports querying and scale
@@ -49,16 +49,17 @@ Most candidates have notebooks. Some have Docker. Very few have Kubernetes on re
 | 9 | S3 model storage + init container | Done |
 | 10 | Full EKS deployment with PostgreSQL + S3 | Done |
 | 11 | End-to-end pipeline test + CI/CD fully wired | Done |
+| 12 | MLflow Model Registry — versioning + automated Production promotion | Done |
 
 ## How It Works
 
 ```
-train.py             → fine-tunes DistilBERT, logs to MLflow, saves model
+train.py             → fine-tunes DistilBERT, logs to MLflow, saves model, registers new version in MLflow Registry
 app.py               → serves predictions via FastAPI, logs every request to PostgreSQL
 evaluate.py          → measures current model accuracy on validation set
 drift_detector.py    → checks confidence drop + prediction distribution shift
 retrain_if_needed.py → orchestrates full loop:
-                         check drift → check accuracy → retrain → upload to S3 → hot-reload API
+                         check drift → check accuracy → retrain → upload to S3 → promote to Production in Registry → hot-reload API
 ```
 
 ## Quickstart

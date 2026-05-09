@@ -3,6 +3,8 @@ import os
 import subprocess
 import sys
 import urllib.request
+import mlflow
+from mlflow.tracking import MlflowClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s — %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
@@ -44,6 +46,13 @@ def upload_model_to_s3(bucket="ml-pipeline-models-tanish"):
     else:
         logger.error("S3 upload failed — new weights not persisted to S3")
 
+def promote_latest_to_production(model_name="sentiment-classifier"):
+    client = MlflowClient()
+    versions = client.search_model_versions(f"name='{model_name}'")
+    latest = max(versions, key=lambda v: int(v.version))
+    client.set_registered_model_alias(model_name, "Production", latest.version)
+    logger.info(f"Promoted version {latest.version} to Production")
+
 def notify_api_reload(api_url="http://localhost:8000"):
     try:
         req = urllib.request.Request(f"{api_url}/reload", method="POST")
@@ -54,7 +63,7 @@ def notify_api_reload(api_url="http://localhost:8000"):
 
 if __name__ == "__main__":
     drift = check_drift()
-    healthy = check_model_health(threshold=0.80)
+    healthy = check_model_health(threshold=0.90)
 
     if not drift and healthy:
         logger.info("No drift, model is healthy — no retraining needed")
@@ -65,4 +74,5 @@ if __name__ == "__main__":
             logger.info("Accuracy below threshold — triggering retraining")
         retrain(epochs=3, batch_size=16)
         upload_model_to_s3()
+        promote_latest_to_production()
         notify_api_reload()

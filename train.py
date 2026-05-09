@@ -1,6 +1,7 @@
 import argparse
 import logging
 import mlflow
+from mlflow.tracking import MlflowClient
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -112,7 +113,7 @@ if __name__ == "__main__":
     logger.info(f"epochs={args.epochs}, batch_size={args.batch_size}, lr={args.lr}")
 
     mlflow.set_experiment("sentiment-classifier")
-    with mlflow.start_run():
+    with mlflow.start_run() as run:
         mlflow.log_params({
             "epochs": args.epochs,
             "batch_size": args.batch_size,
@@ -128,5 +129,16 @@ if __name__ == "__main__":
         train(model, train_loader, val_loader, device, args)
         save_model(model, tokenizer)
         mlflow.log_artifacts("models/", artifact_path="model")
+        client = MlflowClient()
+        try:
+            client.create_registered_model("sentiment-classifier")
+        except mlflow.exceptions.MlflowException:
+            pass  # registered model already exists from a prior run
+        mv = client.create_model_version(
+            name="sentiment-classifier",
+            source=mlflow.get_artifact_uri("model"),
+            run_id=run.info.run_id,
+        )
+        logger.info(f"Registered model version {mv.version} in MLflow Registry")
     logger.info("Training complete")
     exit(0)
