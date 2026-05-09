@@ -695,6 +695,31 @@ Currently `get_accuracy()` evaluates on the static SST-2 validation set (872 exa
 
 ---
 
+## Step 16 — HPA (Horizontal Pod Autoscaler)
+
+Added `k8s/hpa.yaml` to automatically scale inference pods based on CPU utilization.
+
+**Why HPA only on inference, not training:**
+HPA scales long-running services that handle ongoing requests. Training is a CronJob — one pod, runs once, exits. Scaling training horizontally would just create duplicate independent runs, not distributed training. Distributed training (PyTorch DDP) requires coordinated gradient sync across pods — a fundamentally different architecture.
+
+**Configuration:**
+- Min replicas: 1 — always at least one pod serving
+- Max replicas: 3 — cost cap, sufficient for portfolio scale
+- Target CPU: 70% of requests — scales before pods get overwhelmed
+
+**How utilization is calculated:**
+HPA measures `actual CPU / requested CPU` averaged across all pods. With `requests: 500m`, 70% threshold = 350m actual usage triggers a new pod. CPU limit raised to `2000m` (from 500m) so pods can burst under load without being throttled at the request ceiling.
+
+**Scaling stack:**
+```
+Traffic spikes → HPA adds pods (up to 3)
+Node full → Cluster Autoscaler adds EC2 node (not implemented — future)
+```
+
+**Training image doesn't need HPA** — one CronJob run at a time is correct. Parallel training requires PyTorch DDP code rewrite — planned as a separate project.
+
+---
+
 ## Step 15 — Two Dockerfiles + Self-Bootstrapping CronJob
 
 Split the single Docker image into two purpose-built images and made the retraining pipeline fully self-bootstrapping on a fresh cluster.
