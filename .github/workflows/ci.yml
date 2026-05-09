@@ -58,6 +58,13 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Create ECR repositories if they don't exist
+        run: |
+          aws ecr describe-repositories --repository-names ml-pipeline-inference || \
+          aws ecr create-repository --repository-name ml-pipeline-inference --region us-east-1
+          aws ecr describe-repositories --repository-names ml-pipeline-training || \
+          aws ecr create-repository --repository-name ml-pipeline-training --region us-east-1
+
       - name: Build and push inference image to ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
