@@ -1,5 +1,6 @@
 import argparse
 import logging
+import mlflow
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -14,14 +15,21 @@ def get_args():
     parser.add_argument("--batch-size", type=int, default=32)
     return parser.parse_args()
 
-def load_model():
+def load_model(model_path=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-    tokenizer = AutoTokenizer.from_pretrained("models/tokenizer")
-    model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
-    model.load_state_dict(torch.load("models/best_model.pt", map_location=device))
+    if model_path:
+        tokenizer = AutoTokenizer.from_pretrained(f"{model_path}/tokenizer")
+        model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
+        model.load_state_dict(torch.load(f"{model_path}/best_model.pt", map_location=device))
+        logger.info(f"Model loaded from disk: {model_path}")
+    else:
+        artifact_path = mlflow.artifacts.download_artifacts("models:/sentiment-classifier@Production")
+        tokenizer = AutoTokenizer.from_pretrained(f"{artifact_path}/tokenizer")
+        model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
+        model.load_state_dict(torch.load(f"{artifact_path}/best_model.pt", map_location=device))
+        logger.info("Model loaded from Registry (Production)")
     model.to(device)
     model.eval()
-    logger.info(f"Model loaded on {device}")
     return model, tokenizer, device
 
 def evaluate(model, tokenizer, device, batch_size):

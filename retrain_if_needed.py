@@ -5,6 +5,7 @@ import sys
 import urllib.request
 import mlflow
 from mlflow.tracking import MlflowClient
+from evaluate import load_model, evaluate
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s — %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
@@ -16,12 +17,9 @@ def check_drift():
     )
     return result.returncode == 1
 
-def check_model_health(threshold=0.90):
-    result = subprocess.run(
-        [sys.executable, "evaluate.py", "--threshold", str(threshold)],
-        capture_output=False
-    )
-    return result.returncode == 0
+def get_accuracy(model_path=None):
+    model, tokenizer, device = load_model(model_path=model_path)
+    return evaluate(model, tokenizer, device, batch_size=32)
 
 def retrain(epochs=3, batch_size=16):
     logger.info("Starting retraining...")
@@ -63,16 +61,23 @@ def notify_api_reload(api_url="http://localhost:8000"):
 
 if __name__ == "__main__":
     drift = check_drift()
-    healthy = check_model_health(threshold=0.90)
+    production_accuracy = get_accuracy()
+    logger.info(f"Production model accuracy: {production_accuracy:.4f}")
 
-    if not drift and healthy:
+    if not drift and production_accuracy >= 0.80:
         logger.info("No drift, model is healthy — no retraining needed")
     else:
         if drift:
             logger.info("Drift detected — triggering retraining")
-        if not healthy:
+        if production_accuracy < 0.80:
             logger.info("Accuracy below threshold — triggering retraining")
         retrain(epochs=3, batch_size=16)
-        upload_model_to_s3()
-        promote_latest_to_production()
-        notify_api_reload()
+        new_accuracy = get_accuracy(model_path="models/")
+        logger.info(f"New model accuracy: {new_accuracy:.4f}, Production accuracy: {production_accuracy:.4f}")
+        if new_accuracy > production_accuracy:
+            logger.info("New model is better — promoting to Production")
+            promote_latest_to_production()
+            upload_model_to_s3()
+            notify_api_reload()
+        else:
+            logger.info(f"New model not better than Production — keeping current")
