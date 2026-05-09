@@ -7,7 +7,8 @@ import torch
 
 with patch("transformers.AutoTokenizer.from_pretrained"), \
      patch("transformers.AutoModelForSequenceClassification.from_pretrained"), \
-     patch("torch.load"):
+     patch("torch.load"), \
+     patch("mlflow.artifacts.download_artifacts", return_value="/tmp/mock_model"):
     from fastapi.testclient import TestClient
     import app
     client = TestClient(app.app)
@@ -36,3 +37,13 @@ def test_predict_returns_correct_schema():
     assert "confidence" in data
     assert data["prediction"] in ["positive", "negative"]
     assert 0 <= data["confidence"] <= 1
+
+def test_rollback():
+    with patch("app.MlflowClient") as mock_client, \
+         patch("app.load_model_from_registry", return_value=MagicMock()):
+        response = client.post("/rollback", json={"version": "2"})
+        assert response.status_code == 200
+        assert response.json() == {"status": "rolled back to version 2"}
+        mock_client.return_value.set_registered_model_alias.assert_called_once_with(
+            "sentiment-classifier", "Production", "2"
+        )
