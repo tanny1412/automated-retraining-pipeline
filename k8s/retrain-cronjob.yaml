@@ -22,15 +22,17 @@ spec:
                   value: "http://mlflow-service:5000"
               resources:
                 requests:
-                  cpu: "500m"
-                  memory: "2Gi"
-                limits:
-                  cpu: "1000m"
                   memory: "6Gi"
+                  nvidia.com/gpu: "1"
+                limits:
+                  memory: "6Gi"
+                  nvidia.com/gpu: "1"
               volumeMounts:
                 - name: models
                   mountPath: /app/models
 
+          nodeSelector:
+            nvidia.com/gpu: "true"
           restartPolicy: OnFailure
           volumes:
             - name: models
