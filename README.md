@@ -16,8 +16,8 @@ A self-healing ML system running on real AWS infrastructure:
 - CI/CD pipeline that builds, tests, and pushes to ECR on every commit
 - PostgreSQL for prediction logging — replaces CSV, supports querying and scale
 
-**What makes this rare for a portfolio project:**
-Most candidates have notebooks. Some have Docker. Very few have Kubernetes on real cloud infrastructure with persistent storage, IAM roles, CSI drivers, and a CI/CD pipeline attached.
+**Architecture highlights:**
+Production-grade microservices architecture — inference and training are independently deployable and scalable services, each with its own Docker image, resource profile, and deployment lifecycle. Runs on real AWS infrastructure with persistent storage, IAM roles, EBS CSI driver, and a fully automated CI/CD pipeline.
 
 ## Stack
 
