@@ -60,6 +60,15 @@ def notify_api_reload(api_url="http://localhost:8000"):
         logger.warning(f"Could not reach API to reload: {e}")
 
 if __name__ == "__main__":
+    try:
+        MlflowClient().get_model_version_by_alias("sentiment-classifier", "Production")
+    except Exception:
+        logger.info("No Production model found — running initial training")
+        retrain(epochs=3, batch_size=16)
+        promote_latest_to_production()
+        upload_model_to_s3()
+        logger.info("Initial model trained and promoted to Production")
+
     drift = check_drift()
     production_accuracy = get_accuracy()
     logger.info(f"Production model accuracy: {production_accuracy:.4f}")
