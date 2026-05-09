@@ -50,6 +50,7 @@ Most candidates have notebooks. Some have Docker. Very few have Kubernetes on re
 | 10 | Full EKS deployment with PostgreSQL + S3 | Done |
 | 11 | End-to-end pipeline test + CI/CD fully wired | Done |
 | 12 | MLflow Model Registry — versioning + automated Production promotion | Done |
+| 13 | Quality gate — promote only if new model beats Production accuracy | Done |
 
 ## How It Works
 
@@ -59,7 +60,7 @@ app.py               → serves predictions via FastAPI, logs every request to P
 evaluate.py          → measures current model accuracy on validation set
 drift_detector.py    → checks confidence drop + prediction distribution shift
 retrain_if_needed.py → orchestrates full loop:
-                         check drift → check accuracy → retrain → upload to S3 → promote to Production in Registry → hot-reload API
+                         check drift → check accuracy → retrain → quality gate (new vs production) → promote if better → upload to S3 → hot-reload API
 ```
 
 ## Quickstart

@@ -1,6 +1,7 @@
 # CI/CD test
 import os
 import mlflow
+from mlflow.tracking import MlflowClient
 import torch
 from fastapi import FastAPI, Response, Depends
 from sqlalchemy.orm import Session
@@ -52,6 +53,17 @@ def reload_model():
     global model
     model = load_model_from_registry()
     return {"status": "model reloaded"}
+
+class RollbackRequest(BaseModel):
+    version: str
+
+@app.post("/rollback")
+def rollback(request: RollbackRequest):
+    global model
+    client = MlflowClient()
+    client.set_registered_model_alias("sentiment-classifier", "Production", request.version)
+    model = load_model_from_registry()
+    return {"status": f"rolled back to version {request.version}"}
 
 @app.post("/predict", response_model=PredictResponse)
 def predict(request: PredictRequest, db: Session = Depends(get_db)):

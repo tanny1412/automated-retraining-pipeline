@@ -641,3 +641,54 @@ retrain_if_needed.py calls /reload on app.py
 app.py downloads Production version from Registry → serving new model
 ```
 Every step automated. The Registry is the single source of truth for what's in production.
+
+---
+
+## Step 14 — Quality Gate Before Promotion
+
+Added a comparison step between retraining and promotion — the new model only goes to Production if it actually beats the current Production model's accuracy.
+
+**The problem with promoting immediately after retraining:**
+Before this step, every retrain automatically promoted to Production. A model trained on 500 samples with bad hyperparameters could silently replace a better model. No validation, no comparison, no safety net.
+
+**What was built:**
+
+`evaluate.py` — added `model_path=None` parameter to `load_model()`:
+- No `model_path` → downloads Production model from MLflow Registry
+- `model_path="models/"` → loads newly retrained model from disk
+
+`retrain_if_needed.py` — replaced `check_model_health()` subprocess with direct import of `load_model` and `evaluate`. Added `get_accuracy(model_path=None)` function. New flow in `__main__`:
+
+```
+1. get_accuracy()              → Production model accuracy from Registry
+2. retrain()                   → new weights saved to models/best_model.pt
+3. get_accuracy("models/")     → new model accuracy from disk
+4. if new > production         → promote + upload to S3 + reload API
+5. else                        → log and keep current Production
+```
+
+**Why import instead of subprocess for accuracy:**
+`subprocess` only returns an exit code (0 or 1). For comparison we need the actual float. Importing `load_model` and `evaluate` directly gives us the float. `check_model_health()` (True/False) is replaced by `get_accuracy()` (float) — more information, same call.
+
+**S3 upload moved inside quality gate:**
+Previously `upload_model_to_s3()` ran after every retrain. Now it only runs if the new model is promoted. S3 should always match Production — no point uploading weights that didn't beat the current model.
+
+**`/rollback` endpoint added to `app.py`:**
+Accepts a version number, moves the Production alias to that version, and hot-reloads the model. One API call to roll back to any previous version without redeployment.
+
+**Known limitations (future improvements):**
+- Quality gate evaluates on static SST-2 validation set. In production this should be labeled incoming user traffic from a feature store (Feast/Tecton) — last 7 days of real traffic, not a held-out benchmark set.
+- Two separate Dockerfiles (inference + training) would be cleaner than copying training scripts into the inference image.
+
+**Future improvement — split inference and training into separate Docker images:**
+Currently `train.py`, `evaluate.py`, and `retrain_if_needed.py` are all copied into the inference image. In production these should be two separate images:
+- `inference-image` → `app.py` only. Small, fast startup, scales independently.
+- `training-image` → `train.py`, `evaluate.py`, `retrain_if_needed.py`. Larger, runs periodically as a Kubernetes CronJob.
+
+The CronJob YAML references the training image; the Deployment references the inference image. Clean separation of concerns, faster inference deployments.
+
+**Future improvement — quality gate should evaluate on real production data:**
+Currently `get_accuracy()` evaluates on the static SST-2 validation set (872 examples). In a real production system, the quality gate should evaluate on labeled incoming user data — actual traffic that has been labeled via a human feedback loop or labeling pipeline. That's the true measure of "how well is the model doing on real traffic?" The static validation set tells you the model works in general; production data tells you it works for your specific users.
+
+**Future improvement — evaluate.py loads from disk, not Registry:**
+`evaluate.py` currently loads from `models/best_model.pt` on disk. This works right after retraining (new weights just written there) but is fragile at any other time. Better fix: load from Registry by default, with an optional `--model-path` CLI arg override for evaluating a specific version.
