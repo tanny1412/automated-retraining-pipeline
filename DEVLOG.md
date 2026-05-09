@@ -692,3 +692,35 @@ Currently `get_accuracy()` evaluates on the static SST-2 validation set (872 exa
 
 **Future improvement — evaluate.py loads from disk, not Registry:**
 `evaluate.py` currently loads from `models/best_model.pt` on disk. This works right after retraining (new weights just written there) but is fragile at any other time. Better fix: load from Registry by default, with an optional `--model-path` CLI arg override for evaluating a specific version.
+
+---
+
+## Step 15 — Two Dockerfiles + Self-Bootstrapping CronJob
+
+Split the single Docker image into two purpose-built images and made the retraining pipeline fully self-bootstrapping on a fresh cluster.
+
+**Why two Dockerfiles:**
+One image containing both serving and training code is wasteful and couples two unrelated concerns. The inference image only needs to serve predictions — it doesn't need `train.py`, `awscli`, or any training dependencies. Keeping them separate means:
+- Inference image is smaller → faster pulls, faster pod starts
+- Each image can be versioned and scaled independently
+- Training image can run on GPU nodes; inference on CPU nodes
+
+**What was built:**
+
+`Dockerfile` (inference) — `app.py` + `db/` only. No awscli, no training scripts.
+
+`Dockerfile.training` (training) — `train.py`, `evaluate.py`, `retrain_if_needed.py`, `drift_detector.py`, `db/`, `awscli`. CMD runs `retrain_if_needed.py` automatically.
+
+`k8s/retrain-cronjob.yaml` — updated to use `ml-pipeline-training:latest` instead of the inference image.
+
+**CI/CD updated:**
+Builds and pushes both images on every commit. Also auto-creates ECR repositories if they don't exist — so a fresh AWS account works without any manual ECR setup.
+
+**Self-bootstrapping CronJob:**
+Added a check at the start of `retrain_if_needed.py` — if no Production model exists in the Registry, run initial training first before the normal loop. Fresh cluster flow:
+```
+kubectl apply -f k8s/
+CronJob fires → no Production model found → trains → registers → promotes to Production
+Inference pod loads Production model from Registry → serving
+```
+No manual `python train.py` needed on first deploy.

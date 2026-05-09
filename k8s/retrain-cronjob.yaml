@@ -12,7 +12,6 @@ spec:
             - name: retrain
               image: 354578186384.dkr.ecr.us-east-1.amazonaws.com/ml-pipeline-training:latest
               imagePullPolicy: Always
-              command: ["python", "retrain_if_needed.py"]
               env:
                 - name: DATABASE_URL
                   valueFrom:

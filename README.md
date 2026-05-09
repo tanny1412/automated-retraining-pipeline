@@ -51,6 +51,7 @@ Most candidates have notebooks. Some have Docker. Very few have Kubernetes on re
 | 11 | End-to-end pipeline test + CI/CD fully wired | Done |
 | 12 | MLflow Model Registry — versioning + automated Production promotion | Done |
 | 13 | Quality gate — promote only if new model beats Production accuracy | Done |
+| 14 | Two Dockerfiles — separate inference and training images, self-bootstrapping CronJob | Done |
 
 ## How It Works
 
@@ -169,5 +170,14 @@ k8s/
 ├── postgres-statefulset.yaml   → PostgreSQL (StatefulSet + headless Service)
 ├── postgres-secret.yaml        → DB credentials (Kubernetes Secret)
 ├── volumes.yaml                → PVCs for models and MLflow runs (EBS gp2)
-└── retrain-cronjob.yaml        → Automated retraining (CronJob, runs hourly, uploads to S3)
+└── retrain-cronjob.yaml        → Automated retraining (CronJob, runs hourly, uses training image)
 ```
+
+## Docker Images
+
+Two separate images — inference and training are independently deployable:
+
+| Image | Dockerfile | Contents | Used by |
+|---|---|---|---|
+| `ml-pipeline-inference` | `Dockerfile` | `app.py`, `db/` | Inference Deployment |
+| `ml-pipeline-training` | `Dockerfile.training` | `train.py`, `evaluate.py`, `retrain_if_needed.py`, `drift_detector.py`, `db/`, `awscli` | Retrain CronJob |
