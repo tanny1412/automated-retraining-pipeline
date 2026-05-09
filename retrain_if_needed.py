@@ -51,7 +51,7 @@ def promote_latest_to_production(model_name="sentiment-classifier"):
     client.set_registered_model_alias(model_name, "Production", latest.version)
     logger.info(f"Promoted version {latest.version} to Production")
 
-def notify_api_reload(api_url="http://localhost:8000"):
+def notify_api_reload(api_url=os.getenv("INFERENCE_SERVICE_URL", "http://localhost:8000")):
     try:
         req = urllib.request.Request(f"{api_url}/reload", method="POST")
         urllib.request.urlopen(req)

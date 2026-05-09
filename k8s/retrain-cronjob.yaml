@@ -20,6 +20,8 @@ spec:
                       key: DATABASE_URL
                 - name: MLFLOW_TRACKING_URI
                   value: "http://mlflow-service:5000"
+                - name: INFERENCE_SERVICE_URL
+                  value: "http://inference-service:8000"
               resources:
                 requests:
                   memory: "6Gi"
