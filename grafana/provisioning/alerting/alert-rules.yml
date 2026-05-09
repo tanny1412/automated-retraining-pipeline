@@ -1,0 +1,54 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: ML Pipeline Alerts
+    folder: ML Pipeline
+    interval: 1m
+    rules:
+      - uid: confidence-drop-alert
+        title: Low Prediction Confidence
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-datasource
+            model:
+              expr: avg_over_time(prediction_confidence[5m])
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+              settings:
+                mode: ""
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: lt
+                    params:
+                      - 0.70
+                  query:
+                    params:
+                      - B
+                  reducer:
+                    type: last
+                    params: []
+                  type: query
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prediction confidence dropped below 0.70"
+          description: "Average prediction confidence over the last 5 minutes is below 0.70 — model may be degrading."

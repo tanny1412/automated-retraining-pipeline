@@ -1,4 +1,6 @@
 models/
+grafana/provisioning/notifiers/
+grafana/provisioning/alerting/contact-points.yml
 .venv/
 __pycache__/
 *.py[cod]
