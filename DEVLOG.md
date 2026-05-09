@@ -797,3 +797,58 @@ Inference pods    → CPU nodes (python:3.11-slim, 500m–2000m CPU, no GPU)
 HPA               → scales inference pods 1–3 based on CPU load
 ```
 Training and inference now run on entirely different node types — independently scalable and independently priced.
+
+---
+
+## Step 17 — Grafana Alerting (Slack on Confidence Drop)
+
+Added Grafana alerting to notify a Slack channel when prediction confidence drops below 0.70, replacing the previous auto-retraining trigger.
+
+**Why alerting instead of auto-retraining:**
+Auto-retraining is expensive and can make things worse — if confidence drops due to bad data quality or a data pipeline issue, retraining on bad data produces a worse model. A human should investigate first and decide whether retraining is the right fix. Alerting is the production-realistic pattern.
+
+**Why confidence drop over drift flag:**
+Confidence is a continuous metric — every prediction updates it, Prometheus scrapes it every 15 seconds, and Grafana can graph the trend over time. The drift flag only exists inside the CronJob once per hour. Confidence gives a live, continuous signal. Better for alerting.
+
+**What was built:**
+
+`app.py` — added a Prometheus Gauge for prediction confidence:
+```python
+CONFIDENCE = Gauge("prediction_confidence", "Confidence of predictions")
+CONFIDENCE.set(conf)  # set on every prediction
+```
+
+`grafana/provisioning/datasources/datasources.yml` — auto-configures Prometheus as a Grafana datasource on startup. No manual UI clicks needed.
+
+`grafana/provisioning/alerting/contact-points.yml` — configures the Slack webhook contact point. Stored outside git (gitignored) because it contains the webhook URL secret.
+
+`grafana/provisioning/alerting/notification-policies.yml` — routes all alerts to the Slack contact point.
+
+`grafana/provisioning/alerting/alert-rules.yml` — the alert rule:
+- Query A: `avg_over_time(prediction_confidence[5m])` — average confidence over last 5 minutes
+- Step B: reduce time series to single value (last)
+- Step C: threshold < 0.70 → fire
+- `for: 5m` — must be below threshold for 5 continuous minutes before firing (prevents noise from brief dips)
+
+**Why Grafana alerting provisioning (not UI):**
+Everything in code, version controlled, reproducible on any cluster. Fresh deploy → Grafana reads provisioning files → datasource, alert rule, contact point, notification policy all configured automatically. Zero UI clicks.
+
+**The Slack message when it fires:**
+```
+[FIRING:1] Low Prediction Confidence
+Value: B=0.33 (actual avg confidence), C=1 (threshold breached)
+Labels: severity=warning, instance=inference:8000
+Description: Average prediction confidence over the last 5 minutes is below 0.70
+Source: link to alert in Grafana
+Silence: one-click silence if already investigating
+```
+
+**Grafana alert pipeline — A → B → C:**
+```
+A → raw time series from Prometheus (avg_over_time over 5 min = one number per eval)
+B → reduce to scalar (last value — required step, Grafana can't threshold a series directly)
+C → compare scalar against 0.70 → true/false → fire or not
+```
+
+**Tested end to end:**
+Sent predictions with a poorly-trained model (50 samples) — confidence ~0.50. Alert went Pending → Firing after 5 minutes. Slack message received in #alerts with correct labels, annotations, and source link.

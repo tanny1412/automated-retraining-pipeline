@@ -7,7 +7,7 @@ from fastapi import FastAPI, Response, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from db.database import engine
 from db.models import Base, Prediction
 from db.dependencies import get_db
@@ -15,6 +15,7 @@ from db.dependencies import get_db
 PREDICT_COUNT = Counter("predict_requests_total", "Total prediction requests", ["prediction"])
 PREDICT_LATENCY = Histogram("predict_latency_seconds", "Model inference latency")
 REQUEST_LATENCY = Histogram("request_latency_seconds", "Full API request latency")
+CONFIDENCE = Gauge("prediction_confidence", "Confidence of predictions")
 
 Base.metadata.create_all(bind=engine) 
 
@@ -23,7 +24,15 @@ app = FastAPI()
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
 def load_model_from_registry():
-    artifact_path = mlflow.artifacts.download_artifacts("models:/sentiment-classifier@Production")
+    try:
+        artifact_path = mlflow.artifacts.download_artifacts("models:/sentiment-classifier@Production")
+        weights_path = f"{artifact_path}/best_model.pt"
+        if not os.path.exists(weights_path):
+            raise FileNotFoundError(f"No weights at {weights_path}")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Registry load failed ({e}), falling back to disk")
+        artifact_path = "models"
     loaded_model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
     loaded_model.load_state_dict(torch.load(f"{artifact_path}/best_model.pt", map_location=device))
     loaded_model.to(device)
@@ -82,6 +91,7 @@ def predict(request: PredictRequest, db: Session = Depends(get_db)):
             conf = round(confidence.item(), 4)
 
         PREDICT_COUNT.labels(prediction=label).inc()
+        CONFIDENCE.set(conf)
 
         record = Prediction(text=request.text, prediction=label, confidence=conf)
 

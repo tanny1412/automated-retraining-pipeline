@@ -54,6 +54,7 @@ Production-grade microservices architecture — inference and training are indep
 | 14 | Two Dockerfiles — separate inference and training images, self-bootstrapping CronJob | Done |
 | 15 | HPA — autoscale inference pods based on CPU utilization | Done |
 | 16 | GPU node support — CUDA base image for training, nodeSelector in CronJob | Done |
+| 17 | Grafana alerting — Slack notification on confidence drop via provisioning | Done |
 
 ## How It Works
 
