@@ -578,3 +578,66 @@ CronJob ran `train.py` on all 67K SST-2 examples — takes 1-2 hours on CPU t3.m
 
 **CI/CD fully wired:**
 Added `kubectl rollout restart deployment/inference-deployment` as final step in GitHub Actions. Now every `git push` to main automatically: runs tests → builds image → pushes to ECR → redeploys EKS. Full GitOps loop without ArgoCD.
+
+---
+
+## Step 13 — MLflow Model Registry
+
+Added production model lifecycle management on top of the existing MLflow experiment tracking.
+
+**Why Registry when we already had artifact logging:**
+`mlflow.log_artifacts()` is just a file copy — it dumps weights into the run's storage with no concept of version history or production state. If retraining ran 10 times, there was no way to know which run's weights were currently serving production. The Registry adds: numbered versions (v1, v2, v3...), aliases (`Production`), and a full audit trail of promotions.
+
+Without Registry: new weights silently overwrite `best_model.pt` — no history, no rollback.
+With Registry: every retrain creates a new version, exactly one is tagged Production at any moment.
+
+**What was built:**
+
+`train.py` — after every training run, registers a new version in the Registry using `MlflowClient`:
+```python
+client.create_registered_model("sentiment-classifier")   # creates model name if not exists
+client.create_model_version(name=..., source=mlflow.get_artifact_uri("model"), run_id=run.info.run_id)
+```
+
+`retrain_if_needed.py` — after every successful retrain, promotes the latest version to Production:
+```python
+versions = client.search_model_versions("name='sentiment-classifier'")
+latest = max(versions, key=lambda v: int(v.version))
+client.set_registered_model_alias("sentiment-classifier", "Production", latest.version)
+```
+
+`app.py` — loads the Production model by alias instead of hardcoded file path:
+```python
+artifact_path = mlflow.artifacts.download_artifacts("models:/sentiment-classifier@Production")
+model.load_state_dict(torch.load(f"{artifact_path}/best_model.pt", map_location=device))
+```
+
+**Why `MlflowClient` instead of `mlflow.register_model()`:**
+The fluent `mlflow.register_model()` validates that the artifact contains an `MLmodel` metadata file — only created by MLflow's own flavor-specific loggers (`mlflow.pytorch.log_model()`). We use `log_artifacts()` to keep our custom PyTorch state dict format, so we use the lower-level client API which skips that validation. The Registry does bookkeeping; PyTorch owns serialization.
+
+**How the alias moves:**
+`set_registered_model_alias("Production", v3)` automatically removes the alias from v2. An alias can only point to one version at a time — no manual cleanup needed. v1 and v2 stay in the Registry for history and rollback.
+
+**`MLFLOW_TRACKING_URI` per environment:**
+```
+local testing   → MLFLOW_TRACKING_URI=http://localhost:5001
+docker compose  → MLFLOW_TRACKING_URI=http://mlflow:5000  (Docker internal DNS)
+kubernetes      → MLFLOW_TRACKING_URI=http://mlflow-service:5000
+```
+Same code, different env var value per environment. The service name `mlflow` resolves inside Docker because all services share a Docker network.
+
+**Full automated loop after this step:**
+```
+drift detected / accuracy drops
+        ↓
+retrain_if_needed.py triggers train.py
+        ↓
+train.py trains → saves .pt → registers new version in Registry
+        ↓
+retrain_if_needed.py promotes new version to Production alias
+        ↓
+retrain_if_needed.py calls /reload on app.py
+        ↓
+app.py downloads Production version from Registry → serving new model
+```
+Every step automated. The Registry is the single source of truth for what's in production.

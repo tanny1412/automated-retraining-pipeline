@@ -16,10 +16,12 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/predictions
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
     volumes:
       - ./models:/app/models
     depends_on:
       - postgres
+      - mlflow
 
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.21.3

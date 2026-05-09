@@ -1,5 +1,6 @@
 # CI/CD test
 import os
+import mlflow
 import torch
 from fastapi import FastAPI, Response, Depends
 from sqlalchemy.orm import Session
@@ -20,11 +21,16 @@ app = FastAPI()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
+def load_model_from_registry():
+    artifact_path = mlflow.artifacts.download_artifacts("models:/sentiment-classifier@Production")
+    loaded_model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
+    loaded_model.load_state_dict(torch.load(f"{artifact_path}/best_model.pt", map_location=device))
+    loaded_model.to(device)
+    loaded_model.eval()
+    return loaded_model
+
 tokenizer = AutoTokenizer.from_pretrained("models/tokenizer")
-model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
-model.load_state_dict(torch.load("models/best_model.pt", map_location=device))
-model.to(device)
-model.eval()
+model = load_model_from_registry()
 
 class PredictRequest(BaseModel):
     text: str
@@ -44,9 +50,7 @@ def health():
 @app.post("/reload")
 def reload_model():
     global model
-    model.load_state_dict(torch.load("models/best_model.pt", map_location=device))
-    model.to(device)
-    model.eval()
+    model = load_model_from_registry()
     return {"status": "model reloaded"}
 
 @app.post("/predict", response_model=PredictResponse)
