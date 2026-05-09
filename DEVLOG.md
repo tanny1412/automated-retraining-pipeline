@@ -749,3 +749,51 @@ CronJob fires → no Production model found → trains → registers → promote
 Inference pod loads Production model from Registry → serving
 ```
 No manual `python train.py` needed on first deploy.
+
+---
+
+## Step 16 — GPU Node Support for Training
+
+Updated the training image and CronJob to run on GPU-enabled nodes in the cluster.
+
+**Why GPU for training, not inference:**
+Training is computationally expensive — gradient computation, backprop, and weight updates across 67K examples are exactly what GPUs are built for. Inference is a single forward pass on one input at a time — CPU is fast enough and far cheaper.
+
+**What was changed:**
+
+`Dockerfile.training` — swapped `python:3.11-slim` for `nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04`. The CUDA base image ships with cuDNN and CUDA runtime so PyTorch can find and use the GPU. Python 3.11 is then installed on top via `apt`.
+
+```
+python:3.11-slim         → no CUDA runtime → GPU invisible to PyTorch
+nvidia/cuda:12.1.1-...   → CUDA + cuDNN bundled → torch.cuda.is_available() = True
+```
+
+`k8s/retrain-cronjob.yaml` — replaced CPU requests/limits with GPU resources and added `nodeSelector`:
+
+```yaml
+resources:
+  requests:
+    memory: "6Gi"
+    nvidia.com/gpu: "1"
+  limits:
+    memory: "6Gi"
+    nvidia.com/gpu: "1"
+nodeSelector:
+  nvidia.com/gpu: "true"
+```
+
+**How Kubernetes GPU scheduling works:**
+`nvidia.com/gpu: "1"` is a custom resource managed by the NVIDIA device plugin (runs as a DaemonSet on GPU nodes). Kubernetes uses this to schedule the pod only onto nodes that have a GPU available and reserves it exclusively for this pod — GPUs are not time-shared like CPU.
+
+`nodeSelector: nvidia.com/gpu: "true"` is a label-based filter — ensures the pod only lands on nodes that have been explicitly labeled as GPU nodes. Without it, Kubernetes might schedule it on any node and the GPU request would be unschedulable.
+
+**Why MPS (Apple Silicon) doesn't work here:**
+MPS is Apple's Metal-based GPU framework — it only works on macOS, not inside Linux Docker containers. The CUDA base image runs on Linux, so the training image uses CUDA. Locally on a Mac, `train.py` still auto-detects MPS via `torch.backends.mps.is_available()` — the CUDA image only applies when running in the cluster.
+
+**Architecture after this step:**
+```
+Training CronJob  → GPU node  (nvidia/cuda base, 6Gi RAM, 1 GPU)
+Inference pods    → CPU nodes (python:3.11-slim, 500m–2000m CPU, no GPU)
+HPA               → scales inference pods 1–3 based on CPU load
+```
+Training and inference now run on entirely different node types — independently scalable and independently priced.
