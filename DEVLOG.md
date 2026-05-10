@@ -990,3 +990,45 @@ Batch inference is standard in production — data pipelines, bulk classificatio
 
 **Interview angle:**
 A platform that only works with your specific AWS account isn't a platform — it's a personal project with a hard-coded deploy target. The fix is separation of config from code: infrastructure references live in CI/CD variables and env files, never in source. This is the Twelve-Factor App principle applied to ML infrastructure.
+
+---
+
+## Step 23 — Helm Chart: Deploy Entire Platform with One Command
+
+**Goal:** Package the platform so any engineer can deploy it to their own Kubernetes cluster by editing one file and running one command.
+
+**What Helm does:**
+Helm is a templating engine for Kubernetes YAML. Instead of 8 separate YAML files with hardcoded values, you get a chart — templates with `{{ .Values.xxx }}` placeholders filled in from `values.yaml` at deploy time.
+
+**Structure:**
+```
+helm/ml-pipeline/
+├── Chart.yaml          ← chart metadata (name, version)
+├── values.yaml         ← all configurable defaults (committed)
+├── values.secret.yaml  ← real passwords (gitignored, never committed)
+└── templates/          ← k8s YAMLs with {{ .Values.xxx }} placeholders
+```
+
+**Deploy command:**
+```bash
+helm install ml-pipeline ./helm/ml-pipeline \
+  -f helm/ml-pipeline/values.yaml \
+  -f helm/ml-pipeline/values.secret.yaml
+```
+
+That single command deploys inference, training CronJob, MLflow, Prometheus, Grafana, and PostgreSQL to any cluster.
+
+**values.yaml covers:**
+- AWS: region, ECR account ID, S3 bucket
+- Model: name, num_labels, label_map, dataset, text_column
+- Training: schedule, epochs, batch_size, lr, weight_decay, warmup, grad_clip, patience
+- Drift detection: all thresholds
+- Postgres: user, db
+- Grafana: admin password placeholder, Slack webhook placeholder
+- Inference HPA: min/max replicas, CPU threshold
+
+**Secrets pattern:**
+`values.yaml` has empty placeholders for passwords. `values.secret.yaml` (gitignored) has the real values. Helm merges them at deploy time — secrets never touch git.
+
+**Interview angle:**
+Helm is the standard packaging format for Kubernetes applications — it's how real ML platforms are shipped. The difference between a personal project and a platform is whether someone else can deploy it without touching your code. Helm makes that possible: clone, fill in `values.yaml`, one command, done.

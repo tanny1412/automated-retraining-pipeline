@@ -57,6 +57,7 @@ Two Docker images, two node types, independently scalable. Inference runs on CPU
 | 20 | Production-grade training loop — LR scheduler, gradient clipping, best checkpoint, F1, weight decay | Done |
 | 21 | Early stopping + /predict_batch endpoint with bulk PostgreSQL logging and MAX_BATCH_SIZE guard | Done |
 | 22 | Full platform audit — no hardcoded AWS account, region, credentials, or project names anywhere | Done |
+| 23 | Helm chart — entire platform deployable to any Kubernetes cluster with one command | Done |
 
 ## How It Works
 
@@ -158,6 +159,27 @@ docker compose up
 # MLflow UI:  http://localhost:5001
 # Prometheus: http://localhost:9090
 # Grafana:    http://localhost:3000  (admin/admin)
+```
+
+### Helm (any Kubernetes cluster)
+```bash
+# 1. Edit values.yaml with your AWS account, model, and config
+# 2. Create values.secret.yaml with real passwords (gitignored)
+cp helm/ml-pipeline/values.secret.yaml.example helm/ml-pipeline/values.secret.yaml
+# Edit values.secret.yaml — set postgres password, Grafana admin password, Slack webhook URL
+
+# 3. Deploy entire platform
+helm install ml-pipeline ./helm/ml-pipeline \
+  -f helm/ml-pipeline/values.yaml \
+  -f helm/ml-pipeline/values.secret.yaml
+
+# Upgrade after changes
+helm upgrade ml-pipeline ./helm/ml-pipeline \
+  -f helm/ml-pipeline/values.yaml \
+  -f helm/ml-pipeline/values.secret.yaml
+
+# Tear down
+helm uninstall ml-pipeline
 ```
 
 ### Kubernetes (minikube)
