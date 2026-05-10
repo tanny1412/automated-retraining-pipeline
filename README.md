@@ -1,6 +1,6 @@
 # Production MLOps Platform — Microservices, Self-Healing, Fully Automated
 
-A production-grade MLOps platform built on AWS EKS — microservices architecture, automated retraining, drift detection, model registry, autoscaling, and real-time alerting. Built to mirror how ML lifecycle management operates at scale.
+A production-grade MLOps platform built on AWS EKS — supports any HuggingFace encoder-based sequence classifier on any text classification dataset. Microservices architecture, automated retraining, drift detection, model registry, autoscaling, and real-time alerting. Built to mirror how ML lifecycle management operates at scale.
 
 ## What This Builds
 
@@ -18,8 +18,8 @@ Two Docker images, two node types, independently scalable. Inference runs on CPU
 
 ## Stack
 
-- **Model:** DistilBERT fine-tuned on SST-2 (binary sentiment classification)
-- **Training:** Manual PyTorch loop with gradient optimization and per-epoch validation
+- **Model:** Any HuggingFace encoder-based sequence classifier (default: DistilBERT on SST-2)
+- **Training:** Manual PyTorch loop — AdamW with weight decay, linear warmup + LR decay, gradient clipping, best checkpoint, weighted F1
 - **Experiment Tracking:** MLflow (params, metrics, artifacts per run)
 - **Serving:** FastAPI + uvicorn
 - **Drift Detection:** Confidence degradation + prediction distribution shift monitoring
@@ -59,12 +59,58 @@ Two Docker images, two node types, independently scalable. Inference runs on CPU
 ## How It Works
 
 ```
-train.py             → fine-tunes DistilBERT, logs to MLflow, saves model, registers new version in MLflow Registry
-app.py               → serves predictions via FastAPI, logs every request to PostgreSQL
-evaluate.py          → measures current model accuracy on validation set
+train.py             → fine-tunes any HuggingFace sequence classifier, logs to MLflow, saves best checkpoint, registers version in MLflow Registry
+app.py               → serves predictions via FastAPI, maps class index → label via LABEL_MAP, logs every request to PostgreSQL
+evaluate.py          → measures accuracy + weighted F1 on validation set
 drift_detector.py    → checks confidence drop + prediction distribution shift
 retrain_if_needed.py → orchestrates full loop:
                          check drift → check accuracy → retrain → quality gate (new vs production) → promote if better → upload to S3 → hot-reload API
+```
+
+## Supported Models
+
+Any HuggingFace encoder-based model compatible with `AutoModelForSequenceClassification`:
+
+| Model | Use case |
+|-------|----------|
+| `distilbert-base-uncased` | Fast sentiment / binary classification (default) |
+| `bert-base-uncased` | General text classification |
+| `roberta-base` | Higher accuracy classification |
+| `xlm-roberta-base` | Multilingual classification |
+| `biobert-base-cased-v1.2` | Biomedical text |
+| `ProsusAI/finbert` | Financial sentiment |
+
+**Not supported:** generative models (GPT, LLaMA), seq2seq (T5, BART), token classification (NER).
+
+## Configuration
+
+Every aspect of the platform is configurable via env vars — zero code changes required:
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `MODEL_NAME` | `distilbert-base-uncased` | Any HuggingFace sequence classifier |
+| `NUM_LABELS` | `2` | Number of output classes |
+| `LABEL_MAP` | `{"0": "negative", "1": "positive"}` | Class index → label name |
+| `DATASET_NAME` | `sst2` | Any HuggingFace dataset |
+| `TEXT_COLUMN` | `sentence` | Column containing input text |
+| `VAL_SPLIT` | `validation` | Validation split name |
+| `MAX_LENGTH` | `128` | Tokenizer max sequence length |
+| `EPOCHS` | `3` | Training epochs |
+| `BATCH_SIZE` | `16` | Training batch size |
+| `LEARNING_RATE` | `2e-5` | Peak learning rate |
+| `WEIGHT_DECAY` | `0.01` | AdamW L2 regularization |
+| `WARMUP_STEPS` | `100` | Linear warmup steps |
+| `GRAD_CLIP` | `1.0` | Gradient clipping max norm |
+| `ACCURACY_THRESHOLD` | `0.80` | Min accuracy to skip retraining |
+
+**Example — AG News topic classification:**
+```yaml
+MODEL_NAME: roberta-base
+NUM_LABELS: "4"
+DATASET_NAME: ag_news
+TEXT_COLUMN: text
+VAL_SPLIT: test
+LABEL_MAP: '{"0": "World", "1": "Sports", "2": "Business", "3": "Sci/Tech"}'
 ```
 
 ## Quickstart
