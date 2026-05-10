@@ -14,9 +14,9 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: predictions
+          POSTGRES_USER: ${{ vars.POSTGRES_USER || 'postgres' }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || 'postgres' }}
+          POSTGRES_DB: ${{ vars.POSTGRES_DB || 'predictions' }}
         ports:
           - 5432:5432
         options: >-
@@ -52,23 +52,27 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Create ECR repositories if they don't exist
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ECR_INFERENCE_REPO: ${{ vars.ECR_INFERENCE_REPO }}
+          ECR_TRAINING_REPO: ${{ vars.ECR_TRAINING_REPO }}
         run: |
-          aws ecr describe-repositories --repository-names ml-pipeline-inference || \
-          aws ecr create-repository --repository-name ml-pipeline-inference --region us-east-1
-          aws ecr describe-repositories --repository-names ml-pipeline-training || \
-          aws ecr create-repository --repository-name ml-pipeline-training --region us-east-1
+          aws ecr describe-repositories --repository-names $ECR_INFERENCE_REPO || \
+          aws ecr create-repository --repository-name $ECR_INFERENCE_REPO --region $AWS_REGION
+          aws ecr describe-repositories --repository-names $ECR_TRAINING_REPO || \
+          aws ecr create-repository --repository-name $ECR_TRAINING_REPO --region $AWS_REGION
 
       - name: Build and push inference image to ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ml-pipeline-inference
+          ECR_REPOSITORY: ${{ vars.ECR_INFERENCE_REPO }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
@@ -79,7 +83,7 @@ jobs:
       - name: Build and push training image to ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ml-pipeline-training
+          ECR_REPOSITORY: ${{ vars.ECR_TRAINING_REPO }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker build --platform linux/amd64 -f Dockerfile.training -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
@@ -88,6 +92,9 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
       - name: Deploy to EKS
+        env:
+          EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
-          aws eks update-kubeconfig --name ml-pipeline --region us-east-1
+          aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
           kubectl rollout restart deployment/inference-deployment

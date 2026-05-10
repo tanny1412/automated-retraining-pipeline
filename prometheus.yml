@@ -2,6 +2,6 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: "sentiment-api"
+  - job_name: "ml-pipeline-api"
     static_configs:
       - targets: ["inference:8000"]
