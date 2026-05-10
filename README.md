@@ -53,6 +53,7 @@ Two Docker images, two node types, independently scalable. Inference runs on CPU
 | 16 | GPU node support — CUDA base image for training, nodeSelector in CronJob | Done |
 | 17 | Grafana alerting — Slack notification on confidence drop via provisioning | Done |
 | 18 | Configurable model — MODEL_NAME env var, supports any HuggingFace sequence classifier | Done |
+| 19 | Full platform configurability — DATASET_NAME, NUM_LABELS, TEXT_COLUMN, VAL_SPLIT env vars | Done |
 
 ## How It Works
 

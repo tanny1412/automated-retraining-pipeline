@@ -884,3 +884,30 @@ The platform now supports any HuggingFace sequence classification model — not 
 
 **Interview angle:**
 Parameterizing the model name is the difference between a one-model script and a reusable platform. Any sequence classifier on HuggingFace Hub (BERT, RoBERTa, ALBERT, domain-specific variants) can now be swapped in without touching Python code. This is the same pattern production MLOps platforms use — model choice is configuration, not code.
+
+---
+
+## Step 19 — Full Platform Configurability (Dataset, Labels, Text Column)
+
+**What changed:**
+Added four more env vars across `train.py`, `evaluate.py`, `app.py`, and both K8s manifests:
+
+- `NUM_LABELS` — number of output classes. Default `2`. Set to `5` for star rating classification.
+- `DATASET_NAME` — which HuggingFace dataset to load. Default `sst2`. Could be `imdb`, `ag_news`, `yelp_review_full`, etc.
+- `TEXT_COLUMN` — which column contains the text. Default `sentence` (SST-2). Most datasets use `text`.
+- `VAL_SPLIT` — name of the validation split. Default `validation`. Some datasets use `test` or `dev`.
+
+Also fixed a bug: `train.py` had `MODEL_NAME = os.getenv("MODEL_NAME", MODEL_NAME)` — referencing itself before being defined. Fixed to `"distilbert-base-uncased"` as the default string.
+
+**What an engineer changes to deploy on a new task:**
+Only the K8s manifest env vars — no Python code changes required. Example for IMDb sentiment:
+```
+MODEL_NAME=roberta-base
+NUM_LABELS=2
+DATASET_NAME=imdb
+TEXT_COLUMN=text
+VAL_SPLIT=test
+```
+
+**Interview angle:**
+This is the line between a script and a platform. The training loop, tokenizer, inference server, drift evaluation, and model registry are all task-agnostic now. Swapping datasets is config, not code. This mirrors how real MLOps platforms (SageMaker Pipelines, Vertex AI) work — the infrastructure is fixed, the model and data are parameters.
