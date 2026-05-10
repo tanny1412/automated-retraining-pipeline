@@ -103,6 +103,7 @@ Every aspect of the platform is configurable via env vars — zero code changes 
 | `GRAD_CLIP` | `1.0` | Gradient clipping max norm |
 | `ACCURACY_THRESHOLD` | `0.80` | Min accuracy to skip retraining |
 | `PATIENCE` | `3` | Early stopping — epochs without improvement before stopping |
+| `MAX_BATCH_SIZE` | `32` | Max texts per /predict_batch request |
 
 **Example — AG News topic classification:**
 ```yaml
@@ -168,11 +169,13 @@ kubectl create job retrain-test --from=cronjob/retrain-cronjob
 ## API
 
 ```
-GET  /health   → {"status": "ok"}
-POST /predict  → {"text": "this movie was amazing"}
-               ← {"prediction": "positive", "confidence": 0.98}
-POST /reload   → hot-swaps model weights without server restart
-GET  /metrics  → Prometheus metrics (scraped every 15s)
+GET  /health         → {"status": "ok"}
+POST /predict        → {"text": "this movie was amazing"}
+                     ← {"prediction": "positive", "confidence": 0.98}
+POST /predict_batch  → {"texts": ["great movie", "terrible film"]}
+                     ← {"predictions": [{"prediction": "positive", "confidence": 0.97}, ...]}
+POST /reload         → hot-swaps model weights without server restart
+GET  /metrics        → Prometheus metrics (scraped every 15s)
 ```
 
 ## Monitoring
