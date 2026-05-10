@@ -969,3 +969,24 @@ Without it, a client sending 10,000 texts would create a massive tensor and OOM-
 
 **Interview angle:**
 Batch inference is standard in production — data pipelines, bulk classification jobs, backend services that buffer requests. The key design decisions: one DB transaction for the whole batch (not N inserts), MAX_BATCH_SIZE to protect pod memory, full audit trail identical to single predictions.
+
+---
+
+## Step 22 — Full Platform Audit: No Hardcoded Values Anywhere
+
+**Goal:** Make the platform truly deploy-agnostic. Any engineer should be able to fork, set env vars, and deploy to their own AWS account — zero code changes.
+
+**What was hardcoded and how it was fixed:**
+
+**`docker-compose.yml`** — postgres credentials (`postgres/postgres`) and Grafana admin password (`admin`) were hardcoded. Replaced with `${VAR:-default}` syntax — docker-compose reads these from `.env`, falls back to the same safe defaults if not set.
+
+**`.github/workflows/ci.yml`** — AWS region (`us-east-1`), ECR repo names (`ml-pipeline-inference`, `ml-pipeline-training`), and EKS cluster name (`ml-pipeline`) were hardcoded. Replaced with GitHub repository variables (`vars.AWS_REGION`, `vars.ECR_INFERENCE_REPO`, etc.). Any engineer deploying to their own AWS sets these in GitHub Settings — no code changes needed.
+
+**`prometheus.yml`** — job_name was `"sentiment-api"`. Renamed to `"ml-pipeline-api"` — last place the old project name appeared in infrastructure config.
+
+**Grafana Slack webhook** — `contact-points.yml` is gitignored (Grafana provisioning doesn't support env var substitution here). Added `contact-points.yml.example` as a template and documented the setup step in README. Engineers copy the file, paste their webhook URL — one manual step, done once.
+
+**`.env.example`** — created to document every env var docker-compose reads from the environment, so there's no guessing what to set.
+
+**Interview angle:**
+A platform that only works with your specific AWS account isn't a platform — it's a personal project with a hard-coded deploy target. The fix is separation of config from code: infrastructure references live in CI/CD variables and env files, never in source. This is the Twelve-Factor App principle applied to ML infrastructure.
