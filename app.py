@@ -7,6 +7,7 @@ import json
 LABEL_MAP = json.loads(os.getenv("LABEL_MAP", '{"0": "negative", "1": "positive"}'))
 MAX_LENGTH = int(os.getenv("MAX_LENGTH", "128"))
 MAX_BATCH_SIZE = int(os.getenv("MAX_BATCH_SIZE", "32"))
+MLFLOW_MODEL_NAME = os.getenv("MLFLOW_MODEL_NAME", "sentiment-classifier")
 import mlflow
 from mlflow.tracking import MlflowClient
 import torch
@@ -32,7 +33,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.ba
 
 def load_model_from_registry():
     try:
-        artifact_path = mlflow.artifacts.download_artifacts("models:/sentiment-classifier@Production")
+        artifact_path = mlflow.artifacts.download_artifacts(f"models:/{MLFLOW_MODEL_NAME}@Production")
         weights_path = f"{artifact_path}/best_model.pt"
         if not os.path.exists(weights_path):
             raise FileNotFoundError(f"No weights at {weights_path}")
@@ -77,7 +78,7 @@ class RollbackRequest(BaseModel):
 def rollback(request: RollbackRequest):
     global model
     client = MlflowClient()
-    client.set_registered_model_alias("sentiment-classifier", "Production", request.version)
+    client.set_registered_model_alias(MLFLOW_MODEL_NAME, "Production", request.version)
     model = load_model_from_registry()
     return {"status": f"rolled back to version {request.version}"}
 

@@ -52,6 +52,12 @@ spec:
                   value: "3"
                 - name: MAX_SAMPLES
                   value: ""
+                - name: MLFLOW_MODEL_NAME
+                  value: "sentiment-classifier"
+                - name: MLFLOW_EXPERIMENT_NAME
+                  value: "sentiment-classifier"
+                - name: S3_BUCKET
+                  value: "ml-pipeline-models-tanish"
               resources:
                 requests:
                   memory: "6Gi"

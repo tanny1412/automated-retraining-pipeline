@@ -10,6 +10,7 @@ DATASET_NAME = os.getenv("DATASET_NAME", "sst2")
 TEXT_COLUMN = os.getenv("TEXT_COLUMN", "sentence")
 VAL_SPLIT = os.getenv("VAL_SPLIT", "validation")
 MAX_LENGTH = int(os.getenv("MAX_LENGTH", "128"))
+MLFLOW_MODEL_NAME = os.getenv("MLFLOW_MODEL_NAME", "sentiment-classifier")
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from torch.utils.data import DataLoader
@@ -32,7 +33,7 @@ def load_model(model_path=None):
         model.load_state_dict(torch.load(f"{model_path}/best_model.pt", map_location=device))
         logger.info(f"Model loaded from disk: {model_path}")
     else:
-        artifact_path = mlflow.artifacts.download_artifacts("models:/sentiment-classifier@Production")
+        artifact_path = mlflow.artifacts.download_artifacts(f"models:/{MLFLOW_MODEL_NAME}@Production")
         tokenizer = AutoTokenizer.from_pretrained(f"{artifact_path}/tokenizer")
         model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=NUM_LABELS)
         model.load_state_dict(torch.load(f"{artifact_path}/best_model.pt", map_location=device))

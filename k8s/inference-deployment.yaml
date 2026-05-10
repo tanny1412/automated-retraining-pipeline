@@ -49,6 +49,8 @@ spec:
               value: "128"
             - name: MAX_BATCH_SIZE
               value: "32"
+            - name: MLFLOW_MODEL_NAME
+              value: "sentiment-classifier"
             - name: DATASET_NAME
               value: "sst2"
             - name: TEXT_COLUMN
