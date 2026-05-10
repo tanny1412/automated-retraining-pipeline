@@ -7,4 +7,4 @@ contactPoints:
       - uid: slack-receiver
         type: slack
         settings:
-          url: ${SLACK_WEBHOOK_URL}
+          url: SLACK_WEBHOOK_URL_PLACEHOLDER
