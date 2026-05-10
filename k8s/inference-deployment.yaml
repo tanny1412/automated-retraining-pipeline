@@ -41,6 +41,14 @@ spec:
               value: "http://mlflow-service:5000"
             - name: MODEL_NAME
               value: "distilbert-base-uncased"
+            - name: NUM_LABELS
+              value: "2"
+            - name: DATASET_NAME
+              value: "sst2"
+            - name: TEXT_COLUMN
+              value: "sentence"
+            - name: VAL_SPLIT
+              value: "validation"
           resources:
             requests:
               cpu: "500m"

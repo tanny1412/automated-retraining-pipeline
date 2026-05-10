@@ -5,6 +5,10 @@ import mlflow
 import torch
 
 MODEL_NAME = os.getenv("MODEL_NAME", "distilbert-base-uncased")
+NUM_LABELS = int(os.getenv("NUM_LABELS", "2"))
+DATASET_NAME = os.getenv("DATASET_NAME", "sst2")
+TEXT_COLUMN = os.getenv("TEXT_COLUMN", "sentence")
+VAL_SPLIT = os.getenv("VAL_SPLIT", "validation")
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from torch.utils.data import DataLoader
@@ -22,13 +26,13 @@ def load_model(model_path=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     if model_path:
         tokenizer = AutoTokenizer.from_pretrained(f"{model_path}/tokenizer")
-        model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2)
+        model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=NUM_LABELS)
         model.load_state_dict(torch.load(f"{model_path}/best_model.pt", map_location=device))
         logger.info(f"Model loaded from disk: {model_path}")
     else:
         artifact_path = mlflow.artifacts.download_artifacts("models:/sentiment-classifier@Production")
         tokenizer = AutoTokenizer.from_pretrained(f"{artifact_path}/tokenizer")
-        model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2)
+        model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=NUM_LABELS)
         model.load_state_dict(torch.load(f"{artifact_path}/best_model.pt", map_location=device))
         logger.info("Model loaded from Registry (Production)")
     model.to(device)
@@ -36,11 +40,11 @@ def load_model(model_path=None):
     return model, tokenizer, device
 
 def evaluate(model, tokenizer, device, batch_size):
-    dataset = load_dataset("sst2")
-    val_data = dataset["validation"]
+    dataset = load_dataset(DATASET_NAME)
+    val_data = dataset[VAL_SPLIT]
 
     def tokenize(batch):
-        return tokenizer(batch["sentence"], truncation=True, padding="max_length", max_length=128)
+        return tokenizer(batch[TEXT_COLUMN], truncation=True, padding="max_length", max_length=128)
 
     val_tokenized = val_data.map(tokenize, batched=True)
     val_tokenized.set_format("torch", columns=["input_ids", "attention_mask", "label"])
