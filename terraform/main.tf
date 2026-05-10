@@ -1,4 +1,10 @@
 terraform {
+    backend "s3" {
+        bucket = "ml-pipeline-models-tanish"
+        key    = "terraform/state"
+        region = "us-east-1"
+    }
+
     required_providers {
         aws = {
             source = "hashicorp/aws"
@@ -6,7 +12,7 @@ terraform {
         }
     }
 
-    required_version = ">= 1.0"     # minimum Terraform CLI version required
+    required_version = ">= 1.0"
 }
 
 provider "aws" {
