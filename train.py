@@ -4,7 +4,11 @@ import logging
 import mlflow
 from mlflow.tracking import MlflowClient
 
-MODEL_NAME = os.getenv("MODEL_NAME", MODEL_NAME)
+MODEL_NAME = os.getenv("MODEL_NAME", "distilbert-base-uncased")
+NUM_LABELS = int(os.getenv("NUM_LABELS", "2"))
+DATASET_NAME = os.getenv("DATASET_NAME", "sst2")
+TEXT_COLUMN = os.getenv("TEXT_COLUMN", "sentence")
+VAL_SPLIT = os.getenv("VAL_SPLIT", "validation")
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -24,9 +28,9 @@ def get_args():
     return parser.parse_args()
 
 def load_data(max_samples=None):
-    dataset = load_dataset("sst2")
+    dataset = load_dataset(DATASET_NAME)
     train_data = dataset["train"]
-    val_data = dataset["validation"]
+    val_data = dataset[VAL_SPLIT]
     if max_samples:
         train_data = train_data.select(range(max_samples))
         val_data = val_data.select(range(min(max_samples // 5, len(val_data))))
@@ -37,7 +41,7 @@ def tokenize_data(train_data, val_data):
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
     def tokenize(batch):
-        return tokenizer(batch["sentence"], truncation=True, padding="max_length", max_length=128)
+        return tokenizer(batch[TEXT_COLUMN], truncation=True, padding="max_length", max_length=128)
 
     train_tokenized = train_data.map(tokenize, batched=True)
     val_tokenized = val_data.map(tokenize, batched=True)
@@ -56,7 +60,7 @@ def get_model_and_loaders(train_tokenized, val_tokenized, batch_size):
         device = torch.device("cpu")
     logger.info(f"Using device: {device}")
 
-    model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2)
+    model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=NUM_LABELS)
     model = model.to(device)
 
     train_loader = DataLoader(train_tokenized, batch_size=batch_size, shuffle=True)
@@ -123,7 +127,9 @@ if __name__ == "__main__":
             "lr": args.lr,
             "max_samples": args.max_samples,
             "model": MODEL_NAME,
-            "dataset": "sst2",
+            "dataset": DATASET_NAME,
+            "num_labels": NUM_LABELS,
+            "text_column": TEXT_COLUMN,
         })
 
         train_data, val_data = load_data(args.max_samples)
