@@ -14,6 +14,9 @@ WEIGHT_DECAY = float(os.getenv("WEIGHT_DECAY", "0.01"))
 WARMUP_STEPS = int(os.getenv("WARMUP_STEPS", "100"))
 GRAD_CLIP = float(os.getenv("GRAD_CLIP", "1.0"))
 PATIENCE = int(os.getenv("PATIENCE", "3"))
+MLFLOW_MODEL_NAME = os.getenv("MLFLOW_MODEL_NAME", "sentiment-classifier")
+MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "sentiment-classifier")
+S3_BUCKET = os.getenv("S3_BUCKET", "ml-pipeline-models-tanish")
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_linear_schedule_with_warmup
@@ -29,7 +32,7 @@ def get_args():
     parser.add_argument("--epochs", type=int, default=int(os.getenv("EPOCHS", "3")))
     parser.add_argument("--batch-size", type=int, default=int(os.getenv("BATCH_SIZE", "16")))
     parser.add_argument("--lr", type=float, default=float(os.getenv("LEARNING_RATE", "2e-5")))
-    parser.add_argument("--max-samples", type=int, default=None)
+    parser.add_argument("--max-samples", type=int, default=int(os.getenv("MAX_SAMPLES", "0")) or None)
     return parser.parse_args()
 
 def load_data(max_samples=None):
@@ -142,7 +145,7 @@ if __name__ == "__main__":
     args = get_args()
     logger.info(f"epochs={args.epochs}, batch_size={args.batch_size}, lr={args.lr}")
 
-    mlflow.set_experiment("sentiment-classifier")
+    mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
     with mlflow.start_run() as run:
         mlflow.log_params({
             "epochs": args.epochs,
@@ -166,11 +169,11 @@ if __name__ == "__main__":
         mlflow.log_artifacts("models/", artifact_path="model")
         client = MlflowClient()
         try:
-            client.create_registered_model("sentiment-classifier")
+            client.create_registered_model(MLFLOW_MODEL_NAME)
         except mlflow.exceptions.MlflowException:
             pass  # registered model already exists from a prior run
         mv = client.create_model_version(
-            name="sentiment-classifier",
+            name=MLFLOW_MODEL_NAME,
             source=mlflow.get_artifact_uri("model"),
             run_id=run.info.run_id,
         )

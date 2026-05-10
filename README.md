@@ -105,6 +105,14 @@ Every aspect of the platform is configurable via env vars — zero code changes 
 | `ACCURACY_THRESHOLD` | `0.80` | Min accuracy to skip retraining |
 | `PATIENCE` | `3` | Early stopping — epochs without improvement before stopping |
 | `MAX_BATCH_SIZE` | `32` | Max texts per /predict_batch request |
+| `MLFLOW_MODEL_NAME` | `sentiment-classifier` | MLflow registry model name |
+| `MLFLOW_EXPERIMENT_NAME` | `sentiment-classifier` | MLflow experiment name |
+| `S3_BUCKET` | `ml-pipeline-models-tanish` | S3 bucket for model weights |
+| `BASELINE_CONFIDENCE` | `0.90` | Expected avg confidence for drift detection |
+| `BASELINE_DOMINANT_RATIO` | `0.50` | Expected ratio of most common label |
+| `CONFIDENCE_THRESHOLD` | `0.10` | Confidence drop that triggers drift alert |
+| `DISTRIBUTION_THRESHOLD` | `0.20` | Label distribution shift that triggers drift alert |
+| `MIN_PREDICTIONS` | `10` | Min predictions needed before drift detection runs |
 
 **Example — AG News topic classification:**
 ```yaml

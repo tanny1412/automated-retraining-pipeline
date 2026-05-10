@@ -16,12 +16,12 @@ spec:
         - name: model-loader
           image: amazon/aws-cli:latest
           command:
-            - aws
-            - s3
-            - cp
-            - s3://ml-pipeline-models-tanish/models/
-            - /app/models/
-            - --recursive
+            - sh
+            - -c
+            - aws s3 cp s3://${S3_BUCKET}/models/ /app/models/ --recursive
+          env:
+            - name: S3_BUCKET
+              value: "ml-pipeline-models-tanish"
           volumeMounts:
             - name: models-volume
               mountPath: /app/models
@@ -49,6 +49,8 @@ spec:
               value: "128"
             - name: MAX_BATCH_SIZE
               value: "32"
+            - name: MLFLOW_MODEL_NAME
+              value: "sentiment-classifier"
             - name: DATASET_NAME
               value: "sst2"
             - name: TEXT_COLUMN

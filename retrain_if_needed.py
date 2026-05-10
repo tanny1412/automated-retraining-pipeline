@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 EPOCHS = int(os.getenv("EPOCHS", "3"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "16"))
 ACCURACY_THRESHOLD = float(os.getenv("ACCURACY_THRESHOLD", "0.80"))
+MLFLOW_MODEL_NAME = os.getenv("MLFLOW_MODEL_NAME", "sentiment-classifier")
+S3_BUCKET = os.getenv("S3_BUCKET", "ml-pipeline-models-tanish")
 
 def check_drift():
     result = subprocess.run(
@@ -39,7 +41,7 @@ def retrain(epochs=EPOCHS, batch_size=BATCH_SIZE):
     else:
         logger.error("Retraining failed")
 
-def upload_model_to_s3(bucket="ml-pipeline-models-tanish"):
+def upload_model_to_s3(bucket=S3_BUCKET):
     logger.info("Uploading new model weights to S3...")
     result = subprocess.run(
         ["aws", "s3", "cp", "models/", f"s3://{bucket}/models/", "--recursive"],
@@ -50,7 +52,7 @@ def upload_model_to_s3(bucket="ml-pipeline-models-tanish"):
     else:
         logger.error("S3 upload failed — new weights not persisted to S3")
 
-def promote_latest_to_production(model_name="sentiment-classifier"):
+def promote_latest_to_production(model_name=MLFLOW_MODEL_NAME):
     client = MlflowClient()
     versions = client.search_model_versions(f"name='{model_name}'")
     latest = max(versions, key=lambda v: int(v.version))
@@ -67,7 +69,7 @@ def notify_api_reload(api_url=os.getenv("INFERENCE_SERVICE_URL", "http://localho
 
 if __name__ == "__main__":
     try:
-        MlflowClient().get_model_version_by_alias("sentiment-classifier", "Production")
+        MlflowClient().get_model_version_by_alias(MLFLOW_MODEL_NAME, "Production")
     except Exception:
         logger.info("No Production model found — running initial training")
         retrain()
