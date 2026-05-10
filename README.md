@@ -52,6 +52,7 @@ Two Docker images, two node types, independently scalable. Inference runs on CPU
 | 15 | HPA — autoscale inference pods based on CPU utilization | Done |
 | 16 | GPU node support — CUDA base image for training, nodeSelector in CronJob | Done |
 | 17 | Grafana alerting — Slack notification on confidence drop via provisioning | Done |
+| 18 | Configurable model — MODEL_NAME env var, supports any HuggingFace sequence classifier | Done |
 
 ## How It Works
 

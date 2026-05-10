@@ -864,3 +864,23 @@ Two ConfigMaps instead of one because datasources and alerting files belong in d
 
 **Secrets approach:**
 `grafana-secret.yaml` is gitignored — webhook URL never touches git. Applied manually on fresh cluster deploy alongside `postgres-secret.yaml`. In production this would be managed by External Secrets Operator pulling from AWS Secrets Manager.
+
+---
+
+## Step 18 — Configurable Model via MODEL_NAME Env Var
+
+**What changed:**
+Replaced every hardcoded `"distilbert-base-uncased"` string across `train.py`, `app.py`, and `evaluate.py` with `MODEL_NAME = os.getenv("MODEL_NAME", "distilbert-base-uncased")`. Also added `MODEL_NAME` as an env var in `k8s/retrain-cronjob.yaml` and `k8s/inference-deployment.yaml`.
+
+**Why:**
+The platform now supports any HuggingFace sequence classification model — not just DistilBERT. An engineer deploying a different model only changes one value (`MODEL_NAME`) in the K8s manifests (or `values.yaml` once Helm is added). Nothing else changes — the training loop, tokenizer loading, inference serving, evaluation, and registry promotion all adapt automatically.
+
+**Files changed:**
+- `train.py` — `AutoTokenizer.from_pretrained(MODEL_NAME)`, `AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, ...)`
+- `app.py` — same two calls + `os.getenv` at top
+- `evaluate.py` — same
+- `k8s/retrain-cronjob.yaml` — added `MODEL_NAME: distilbert-base-uncased` env var
+- `k8s/inference-deployment.yaml` — added `MODEL_NAME: distilbert-base-uncased` env var
+
+**Interview angle:**
+Parameterizing the model name is the difference between a one-model script and a reusable platform. Any sequence classifier on HuggingFace Hub (BERT, RoBERTa, ALBERT, domain-specific variants) can now be swapped in without touching Python code. This is the same pattern production MLOps platforms use — model choice is configuration, not code.
