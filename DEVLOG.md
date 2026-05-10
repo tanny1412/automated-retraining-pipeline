@@ -1111,7 +1111,48 @@ EC2 node → assumes eks_node role → 4 policies:
     S3FullAccess          → read/write model weights
 ```
 
-**One liner:** role = job title, policy = rulebook, assume_role_policy = who can hold this job.
+**One liner:** role = job title, policy = ruleback, assume_role_policy = who can hold this job.
+
+---
+
+## Step 24 (continued) — Cluster Autoscaler
+
+**Two levels of autoscaling:**
+- HPA (Horizontal Pod Autoscaler) — pod level. Defined in `helm/ml-pipeline/templates/hpa.yaml`. Scales inference pods 1→3 based on CPU utilization.
+- Cluster Autoscaler — node level. Adds/removes EC2 nodes based on pending pods.
+
+**How Cluster Autoscaler works:**
+Terraform sets the limits in `eks.tf` (`min_size`, `max_size`). Cluster Autoscaler is the controller that actually enforces those limits at runtime.
+
+Without Cluster Autoscaler: GPU node group stays at 0 forever. Retrain pod gets stuck pending, waiting for a GPU node that never appears.
+
+With Cluster Autoscaler:
+```
+retrain CronJob triggers
+  → pod scheduled, needs GPU node
+  → Cluster Autoscaler sees pending pod
+  → spins up g4dn.xlarge
+  → pod runs, training completes
+  → node idle for 10 min
+  → Cluster Autoscaler scales back to 0
+  → no GPU cost
+```
+
+**How to install — one time, after cluster exists:**
+```bash
+# 1. Connect kubectl to cluster
+aws eks update-kubeconfig --name ml-pipeline --region us-east-1
+
+# 2. Add autoscaler Helm repo
+helm repo add autoscaler https://kubernetes.github.io/autoscaler
+
+# 3. Install Cluster Autoscaler
+helm install cluster-autoscaler autoscaler/cluster-autoscaler \
+  --set autoDiscovery.clusterName=ml-pipeline \
+  --set awsRegion=us-east-1
+```
+
+Cluster Autoscaler reads the node group min/max limits already set in Terraform — no separate config file needed. It discovers node groups automatically using the cluster name. Runs as a pod in the cluster permanently after install.
 
 ---
 
