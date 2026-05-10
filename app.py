@@ -6,10 +6,11 @@ NUM_LABELS = int(os.getenv("NUM_LABELS", "2"))
 import json
 LABEL_MAP = json.loads(os.getenv("LABEL_MAP", '{"0": "negative", "1": "positive"}'))
 MAX_LENGTH = int(os.getenv("MAX_LENGTH", "128"))
+MAX_BATCH_SIZE = int(os.getenv("MAX_BATCH_SIZE", "32"))
 import mlflow
 from mlflow.tracking import MlflowClient
 import torch
-from fastapi import FastAPI, Response, Depends
+from fastapi import FastAPI, Response, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -105,6 +106,39 @@ def predict(request: PredictRequest, db: Session = Depends(get_db)):
         db.commit()
 
         return PredictResponse(prediction=label, confidence=conf)
+
+class PredictBatchRequest(BaseModel):
+    texts: list[str]
+
+class PredictBatchResponse(BaseModel):
+    predictions: list[PredictResponse]
+
+@app.post("/predict_batch", response_model=PredictBatchResponse)
+def predict_batch(request: PredictBatchRequest, db: Session = Depends(get_db)):
+    if len(request.texts) > MAX_BATCH_SIZE:
+        raise HTTPException(status_code=400, detail=f"Batch size {len(request.texts)} exceeds maximum of {MAX_BATCH_SIZE}")
+
+    inputs = tokenizer(request.texts, return_tensors="pt", truncation=True, padding="max_length", max_length=MAX_LENGTH)
+    inputs = {k: v.to(device) for k, v in inputs.items() if k != "token_type_ids"}
+
+    with torch.no_grad():
+        outputs = model(**inputs)
+
+    probs = torch.softmax(outputs.logits, dim=-1)
+    results = []
+    records = []
+    for i in range(len(request.texts)):
+        confidence, predicted_class = probs[i].max(dim=-1)
+        label = LABEL_MAP[str(predicted_class.item())]
+        conf = round(confidence.item(), 4)
+        PREDICT_COUNT.labels(prediction=label).inc()
+        results.append(PredictResponse(prediction=label, confidence=conf))
+        records.append(Prediction(text=request.texts[i], prediction=label, confidence=conf))
+
+    db.bulk_save_objects(records)
+    db.commit()
+
+    return PredictBatchResponse(predictions=results)
 
 @app.get("/metrics")
 def metrics():

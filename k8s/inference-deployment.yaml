@@ -47,6 +47,8 @@ spec:
               value: '{"0": "negative", "1": "positive"}'
             - name: MAX_LENGTH
               value: "128"
+            - name: MAX_BATCH_SIZE
+              value: "32"
             - name: DATASET_NAME
               value: "sst2"
             - name: TEXT_COLUMN
