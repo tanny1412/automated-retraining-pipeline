@@ -1,23 +1,20 @@
-# Automated ML Retraining Pipeline
+# Production MLOps Platform — Microservices, Self-Healing, Fully Automated
 
-An end-to-end MLOps platform demonstrating automated model retraining, experiment tracking, drift detection, and production serving — built to mirror how ML lifecycle management operates at scale.
+A production-grade MLOps platform built on AWS EKS — microservices architecture, automated retraining, drift detection, model registry, autoscaling, and real-time alerting. Built to mirror how ML lifecycle management operates at scale.
 
 ## What This Builds
 
 A self-healing ML system running on real AWS infrastructure:
 
-- DistilBERT served via a public URL on AWS (not localhost)
-- Model weights persisted on EBS — survives pod restarts
-- Model weights stored on S3 — init container downloads latest on every pod start
-- Automated hourly retraining via Kubernetes CronJob — uploads new weights to S3 after each run
-- Drift detection monitoring every prediction via PostgreSQL
-- MLflow tracking all experiments + Model Registry managing production lifecycle (versioning, promotion, rollback)
-- Prometheus + Grafana dashboards live on AWS
-- CI/CD pipeline that builds, tests, and pushes to ECR on every commit
-- PostgreSQL for prediction logging — replaces CSV, supports querying and scale
+- **Microservices** — inference and training are independently deployable services, each with its own Docker image, resource profile, and scaling policy
+- **Self-healing** — drift detected → Slack alert fired → human investigates → retrain if needed. Model registry quality gate ensures Production only gets better, never worse
+- **Self-bootstrapping** — fresh cluster deploy → CronJob detects no model → trains → registers → serves. Zero manual steps
+- **Autoscaling** — HPA scales inference pods 1→3 based on CPU load. GPU nodes for training, CPU nodes for inference
+- **Full observability** — Prometheus metrics, Grafana dashboards, Slack alerting on confidence drop — all provisioned as code, zero UI clicks
+- **GitOps-ready CI/CD** — every `git push` builds, tests, pushes to ECR, and rolls out new inference pods automatically
 
 **Architecture highlights:**
-Production-grade microservices architecture — inference and training are independently deployable and scalable services, each with its own Docker image, resource profile, and deployment lifecycle. Runs on real AWS infrastructure with persistent storage, IAM roles, EBS CSI driver, and a fully automated CI/CD pipeline.
+Two Docker images, two node types, independently scalable. Inference runs on CPU nodes behind a LoadBalancer with HPA. Training runs on GPU nodes as a Kubernetes CronJob. MLflow Model Registry manages versioning, promotion, and rollback. S3 as single source of truth for model weights — init container downloads latest on every pod start. Everything reproducible on a fresh cluster with two manual steps.
 
 ## Stack
 
