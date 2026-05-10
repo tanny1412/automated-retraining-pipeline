@@ -3,6 +3,9 @@ import os
 
 MODEL_NAME = os.getenv("MODEL_NAME", "distilbert-base-uncased")
 NUM_LABELS = int(os.getenv("NUM_LABELS", "2"))
+import json
+LABEL_MAP = json.loads(os.getenv("LABEL_MAP", '{"0": "negative", "1": "positive"}'))
+MAX_LENGTH = int(os.getenv("MAX_LENGTH", "128"))
 import mlflow
 from mlflow.tracking import MlflowClient
 import torch
@@ -81,7 +84,7 @@ def rollback(request: RollbackRequest):
 def predict(request: PredictRequest, db: Session = Depends(get_db)):
     with REQUEST_LATENCY.time():
         with PREDICT_LATENCY.time():
-            inputs = tokenizer(request.text, return_tensors="pt", truncation=True, padding="max_length", max_length=128)
+            inputs = tokenizer(request.text, return_tensors="pt", truncation=True, padding="max_length", max_length=MAX_LENGTH)
             inputs = {k: v.to(device) for k, v in inputs.items() if k != "token_type_ids"}
 
             with torch.no_grad():
@@ -90,7 +93,7 @@ def predict(request: PredictRequest, db: Session = Depends(get_db)):
             probs = torch.softmax(outputs.logits, dim=-1)
             confidence, predicted_class = probs.max(dim=-1)
 
-            label = "positive" if predicted_class.item() == 1 else "negative"
+            label = LABEL_MAP[str(predicted_class.item())]
             conf = round(confidence.item(), 4)
 
         PREDICT_COUNT.labels(prediction=label).inc()
