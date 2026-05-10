@@ -76,6 +76,16 @@ data:
     policies:
       - orgId: 1
         receiver: Slack Alerts
+  contact-points.yml: |
+    apiVersion: 1
+    contactPoints:
+      - orgId: 1
+        name: Slack Alerts
+        receivers:
+          - uid: slack-receiver
+            type: slack
+            settings:
+              url: {{ .Values.grafana.slackWebhookUrl }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -111,9 +121,6 @@ spec:
               mountPath: /etc/grafana/provisioning/datasources
             - name: grafana-alerting
               mountPath: /etc/grafana/provisioning/alerting
-            - name: grafana-secret
-              mountPath: /etc/grafana/provisioning/alerting/contact-points.yml
-              subPath: contact-points.yml
 
       volumes:
         - name: grafana-datasources
@@ -122,9 +129,6 @@ spec:
         - name: grafana-alerting
           configMap:
             name: grafana-alerting
-        - name: grafana-secret
-          secret:
-            secretName: grafana-secret
 ---
 apiVersion: v1
 kind: Service
