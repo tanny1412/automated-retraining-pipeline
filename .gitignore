@@ -1,6 +1,7 @@
 models/
 grafana/provisioning/notifiers/
 grafana/provisioning/alerting/contact-points.yml
+k8s/grafana-secret.yaml
 .venv/
 __pycache__/
 *.py[cod]
