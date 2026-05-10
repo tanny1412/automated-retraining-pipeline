@@ -50,6 +50,8 @@ spec:
                   value: "1.0"
                 - name: PATIENCE
                   value: "3"
+                - name: MAX_SAMPLES
+                  value: ""
               resources:
                 requests:
                   memory: "6Gi"
