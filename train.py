@@ -10,9 +10,12 @@ DATASET_NAME = os.getenv("DATASET_NAME", "sst2")
 TEXT_COLUMN = os.getenv("TEXT_COLUMN", "sentence")
 VAL_SPLIT = os.getenv("VAL_SPLIT", "validation")
 MAX_LENGTH = int(os.getenv("MAX_LENGTH", "128"))
+WEIGHT_DECAY = float(os.getenv("WEIGHT_DECAY", "0.01"))
+WARMUP_STEPS = int(os.getenv("WARMUP_STEPS", "100"))
+GRAD_CLIP = float(os.getenv("GRAD_CLIP", "1.0"))
 import torch
 from datasets import load_dataset
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_linear_schedule_with_warmup
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from tqdm import tqdm
@@ -69,8 +72,11 @@ def get_model_and_loaders(train_tokenized, val_tokenized, batch_size):
 
     return model, train_loader, val_loader, device
 
-def train(model, train_loader, val_loader, device, args):
-    optimizer = AdamW(model.parameters(), lr=args.lr)
+def train(model, tokenizer, train_loader, val_loader, device, args):
+    optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=WEIGHT_DECAY)
+    total_steps = len(train_loader) * args.epochs
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=WARMUP_STEPS, num_training_steps=total_steps)
+    best_val_accuracy = 0.0
 
     for epoch in range(args.epochs):
         model.train()
@@ -87,7 +93,9 @@ def train(model, train_loader, val_loader, device, args):
 
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
             optimizer.step()
+            scheduler.step()
 
             total_loss += loss.item()
             progress.set_postfix(loss=f"{loss.item():.4f}")
@@ -111,6 +119,11 @@ def train(model, train_loader, val_loader, device, args):
         logger.info(f"Epoch {epoch+1}/{args.epochs} — loss: {avg_loss:.4f}, val_accuracy: {accuracy:.4f}")
         mlflow.log_metrics({"loss": avg_loss, "val_accuracy": accuracy}, step=epoch + 1)
 
+        if accuracy > best_val_accuracy:
+            best_val_accuracy = accuracy
+            save_model(model, tokenizer)
+            logger.info(f"New best model saved — val_accuracy: {best_val_accuracy:.4f}")
+
 def save_model(model, tokenizer):
     torch.save(model.state_dict(), "models/best_model.pt")
     tokenizer.save_pretrained("models/tokenizer")
@@ -131,13 +144,15 @@ if __name__ == "__main__":
             "dataset": DATASET_NAME,
             "num_labels": NUM_LABELS,
             "text_column": TEXT_COLUMN,
+            "weight_decay": WEIGHT_DECAY,
+            "warmup_steps": WARMUP_STEPS,
+            "grad_clip": GRAD_CLIP,
         })
 
         train_data, val_data = load_data(args.max_samples)
         tokenizer, train_tokenized, val_tokenized = tokenize_data(train_data, val_data)
         model, train_loader, val_loader, device = get_model_and_loaders(train_tokenized, val_tokenized, args.batch_size)
-        train(model, train_loader, val_loader, device, args)
-        save_model(model, tokenizer)
+        train(model, tokenizer, train_loader, val_loader, device, args)
         mlflow.log_artifacts("models/", artifact_path="model")
         client = MlflowClient()
         try:

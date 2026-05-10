@@ -23,7 +23,9 @@ def check_drift():
 
 def get_accuracy(model_path=None):
     model, tokenizer, device = load_model(model_path=model_path)
-    return evaluate(model, tokenizer, device, batch_size=BATCH_SIZE)
+    accuracy, f1 = evaluate(model, tokenizer, device, batch_size=BATCH_SIZE)
+    logger.info(f"F1 (weighted): {f1:.4f}")
+    return accuracy
 
 def retrain(epochs=EPOCHS, batch_size=BATCH_SIZE):
     logger.info("Starting retraining...")
