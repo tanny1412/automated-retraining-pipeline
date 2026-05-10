@@ -13,6 +13,7 @@ MAX_LENGTH = int(os.getenv("MAX_LENGTH", "128"))
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from torch.utils.data import DataLoader
+from sklearn.metrics import f1_score
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s — %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ def evaluate(model, tokenizer, device, batch_size):
     val_tokenized.set_format("torch", columns=["input_ids", "attention_mask", "label"])
     val_loader = DataLoader(val_tokenized, batch_size=batch_size)
 
+    all_preds, all_labels = [], []
     correct, total = 0, 0
     with torch.no_grad():
         for batch in val_loader:
@@ -62,15 +64,18 @@ def evaluate(model, tokenizer, device, batch_size):
             preds = outputs.logits.argmax(dim=-1)
             correct += (preds == labels).sum().item()
             total += labels.size(0)
+            all_preds.extend(preds.cpu().tolist())
+            all_labels.extend(labels.cpu().tolist())
 
     accuracy = correct / total
-    logger.info(f"Validation accuracy: {accuracy:.4f}")
-    return accuracy
+    f1 = f1_score(all_labels, all_preds, average="weighted")
+    logger.info(f"Validation accuracy: {accuracy:.4f}, F1: {f1:.4f}")
+    return accuracy, f1
 
 if __name__ == "__main__":
     args = get_args()
     model, tokenizer, device = load_model()
-    accuracy = evaluate(model, tokenizer, device, args.batch_size)
+    accuracy, f1 = evaluate(model, tokenizer, device, args.batch_size)
 
     if accuracy < args.threshold:
         logger.info(f"Accuracy {accuracy:.4f} below threshold {args.threshold} — retraining needed")
