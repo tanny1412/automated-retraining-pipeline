@@ -936,3 +936,36 @@ This is the line between a script and a platform. The training loop, tokenizer, 
 
 **Interview angle:**
 The training loop now matches what you'd see in a production fine-tuning job — warmup + decay LR, gradient clipping, weight regularization, best checkpoint, and F1 evaluation. Flat LR with no regularization is the first thing an ML engineer notices in a review.
+
+---
+
+## Step 21 — Early Stopping + /predict_batch Endpoint
+
+**Early stopping (`PATIENCE=3`):**
+Added `epochs_no_improve` counter inside the training loop. If val accuracy doesn't improve for `PATIENCE` consecutive epochs, training stops early. Best model is already saved from the epoch it peaked. Saves GPU compute, prevents overfitting on longer runs. Configurable via `PATIENCE` env var.
+
+```
+Epoch 1 — accuracy 0.82 → improved, save, epochs_no_improve=0
+Epoch 2 — accuracy 0.84 → improved, save, epochs_no_improve=0
+Epoch 3 — accuracy 0.83 → no improvement, epochs_no_improve=1
+Epoch 4 — accuracy 0.83 → no improvement, epochs_no_improve=2
+Epoch 5 — accuracy 0.82 → no improvement, epochs_no_improve=3 → STOP
+```
+
+**`/predict_batch` endpoint:**
+Accepts a list of texts, runs one forward pass for the whole batch, returns predictions for all. Full PostgreSQL logging via `bulk_save_objects` — one DB transaction for the entire batch. Prometheus counter incremented per prediction. `MAX_BATCH_SIZE=32` guard — rejects oversized batches before any tensor is created, keeps the pod alive.
+
+```json
+POST /predict_batch
+{"texts": ["great movie", "terrible film", "okay I guess"]}
+← {"predictions": [{"prediction": "positive", "confidence": 0.97}, ...]}
+```
+
+**Why bulk_save_objects over individual db.add():**
+One `INSERT` statement for all rows vs N separate statements. Same atomicity — one commit, all or nothing. Correct approach for batch operations.
+
+**MAX_BATCH_SIZE guard:**
+Without it, a client sending 10,000 texts would create a massive tensor and OOM-kill the pod, taking down `/predict` for everyone. The guard rejects oversized requests with HTTP 400 before any computation — pod stays alive.
+
+**Interview angle:**
+Batch inference is standard in production — data pipelines, bulk classification jobs, backend services that buffer requests. The key design decisions: one DB transaction for the whole batch (not N inserts), MAX_BATCH_SIZE to protect pod memory, full audit trail identical to single predictions.

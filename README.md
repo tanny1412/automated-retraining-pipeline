@@ -55,6 +55,7 @@ Two Docker images, two node types, independently scalable. Inference runs on CPU
 | 18 | Configurable model — MODEL_NAME env var, supports any HuggingFace sequence classifier | Done |
 | 19 | Full platform configurability — DATASET_NAME, NUM_LABELS, TEXT_COLUMN, VAL_SPLIT env vars | Done |
 | 20 | Production-grade training loop — LR scheduler, gradient clipping, best checkpoint, F1, weight decay | Done |
+| 21 | Early stopping + /predict_batch endpoint with bulk PostgreSQL logging and MAX_BATCH_SIZE guard | Done |
 
 ## How It Works
 
