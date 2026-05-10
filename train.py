@@ -12,6 +12,7 @@ VAL_SPLIT = os.getenv("VAL_SPLIT", "validation")
 MAX_LENGTH = int(os.getenv("MAX_LENGTH", "128"))
 WEIGHT_DECAY = float(os.getenv("WEIGHT_DECAY", "0.01"))
 WARMUP_STEPS = int(os.getenv("WARMUP_STEPS", "100"))
+GRAD_CLIP = float(os.getenv("GRAD_CLIP", "1.0"))
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_linear_schedule_with_warmup
@@ -92,6 +93,7 @@ def train(model, tokenizer, train_loader, val_loader, device, args):
 
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
             optimizer.step()
             scheduler.step()
 
@@ -144,6 +146,7 @@ if __name__ == "__main__":
             "text_column": TEXT_COLUMN,
             "weight_decay": WEIGHT_DECAY,
             "warmup_steps": WARMUP_STEPS,
+            "grad_clip": GRAD_CLIP,
         })
 
         train_data, val_data = load_data(args.max_samples)

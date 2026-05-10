@@ -46,6 +46,8 @@ spec:
                   value: "0.01"
                 - name: WARMUP_STEPS
                   value: "100"
+                - name: GRAD_CLIP
+                  value: "1.0"
               resources:
                 requests:
                   memory: "6Gi"
