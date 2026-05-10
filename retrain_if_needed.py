@@ -77,12 +77,12 @@ if __name__ == "__main__":
     production_accuracy = get_accuracy()
     logger.info(f"Production model accuracy: {production_accuracy:.4f}")
 
-    if not drift and production_accuracy >= 0.80:
+    if not drift and production_accuracy >= ACCURACY_THRESHOLD:
         logger.info("No drift, model is healthy — no retraining needed")
     else:
         if drift:
             logger.info("Drift detected — triggering retraining")
-        if production_accuracy < 0.80:
+        if production_accuracy < ACCURACY_THRESHOLD:
             logger.info("Accuracy below threshold — triggering retraining")
         retrain()
         new_accuracy = get_accuracy(model_path="models/")
