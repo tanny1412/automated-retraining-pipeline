@@ -11,9 +11,10 @@ TEXT_COLUMN = os.getenv("TEXT_COLUMN", "sentence")
 VAL_SPLIT = os.getenv("VAL_SPLIT", "validation")
 MAX_LENGTH = int(os.getenv("MAX_LENGTH", "128"))
 WEIGHT_DECAY = float(os.getenv("WEIGHT_DECAY", "0.01"))
+WARMUP_STEPS = int(os.getenv("WARMUP_STEPS", "100"))
 import torch
 from datasets import load_dataset
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_linear_schedule_with_warmup
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from tqdm import tqdm
@@ -72,6 +73,8 @@ def get_model_and_loaders(train_tokenized, val_tokenized, batch_size):
 
 def train(model, tokenizer, train_loader, val_loader, device, args):
     optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=WEIGHT_DECAY)
+    total_steps = len(train_loader) * args.epochs
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=WARMUP_STEPS, num_training_steps=total_steps)
     best_val_accuracy = 0.0
 
     for epoch in range(args.epochs):
@@ -90,6 +93,7 @@ def train(model, tokenizer, train_loader, val_loader, device, args):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step()
 
             total_loss += loss.item()
             progress.set_postfix(loss=f"{loss.item():.4f}")
@@ -139,6 +143,7 @@ if __name__ == "__main__":
             "num_labels": NUM_LABELS,
             "text_column": TEXT_COLUMN,
             "weight_decay": WEIGHT_DECAY,
+            "warmup_steps": WARMUP_STEPS,
         })
 
         train_data, val_data = load_data(args.max_samples)

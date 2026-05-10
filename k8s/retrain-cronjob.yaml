@@ -44,6 +44,8 @@ spec:
                   value: "0.80"
                 - name: WEIGHT_DECAY
                   value: "0.01"
+                - name: WARMUP_STEPS
+                  value: "100"
               resources:
                 requests:
                   memory: "6Gi"
