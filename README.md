@@ -102,6 +102,7 @@ Every aspect of the platform is configurable via env vars — zero code changes 
 | `WARMUP_STEPS` | `100` | Linear warmup steps |
 | `GRAD_CLIP` | `1.0` | Gradient clipping max norm |
 | `ACCURACY_THRESHOLD` | `0.80` | Min accuracy to skip retraining |
+| `PATIENCE` | `3` | Early stopping — epochs without improvement before stopping |
 
 **Example — AG News topic classification:**
 ```yaml

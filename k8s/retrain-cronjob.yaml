@@ -48,6 +48,8 @@ spec:
                   value: "100"
                 - name: GRAD_CLIP
                   value: "1.0"
+                - name: PATIENCE
+                  value: "3"
               resources:
                 requests:
                   memory: "6Gi"
