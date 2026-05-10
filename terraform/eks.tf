@@ -38,6 +38,15 @@ resource "aws_eks_node_group" "gpu" {
     max_size     = 1
   }
 
+  labels = {
+    "nvidia.com/gpu" = "true"
+  }
+
+  tags = {
+    "k8s.io/cluster-autoscaler/node-template/label/nvidia.com/gpu"     = "true"
+    "k8s.io/cluster-autoscaler/node-template/resources/nvidia.com/gpu" = "1"
+  }
+
   depends_on = [aws_iam_role_policy_attachment.eks_node_policy]
 }
 

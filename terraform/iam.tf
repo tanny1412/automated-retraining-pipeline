@@ -96,7 +96,36 @@ resource "aws_iam_role" "cluster_autoscaler" {
   })
 }
 
-resource "aws_iam_role_policy_attachment" "cluster_autoscaler_policy" {
-  role       = aws_iam_role.cluster_autoscaler.name
-  policy_arn = "arn:aws:iam::aws:policy/AutoScalingFullAccess"
+resource "aws_iam_role_policy" "cluster_autoscaler_inline" {
+  name = "${var.cluster_name}-cluster-autoscaler-policy"
+  role = aws_iam_role.cluster_autoscaler.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "autoscaling:DescribeAutoScalingGroups",
+          "autoscaling:DescribeAutoScalingInstances",
+          "autoscaling:DescribeLaunchConfigurations",
+          "autoscaling:DescribeScalingActivities",
+          "autoscaling:DescribeTags",
+          "ec2:DescribeInstanceTypes",
+          "ec2:DescribeImages",
+          "ec2:DescribeLaunchTemplateVersions",
+          "eks:DescribeNodegroup"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "autoscaling:SetDesiredCapacity",
+          "autoscaling:TerminateInstanceInAutoScalingGroup"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }
