@@ -9,6 +9,7 @@ NUM_LABELS = int(os.getenv("NUM_LABELS", "2"))
 DATASET_NAME = os.getenv("DATASET_NAME", "sst2")
 TEXT_COLUMN = os.getenv("TEXT_COLUMN", "sentence")
 VAL_SPLIT = os.getenv("VAL_SPLIT", "validation")
+MAX_LENGTH = int(os.getenv("MAX_LENGTH", "128"))
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from torch.utils.data import DataLoader
@@ -18,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--threshold", type=float, default=0.90)
-    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--threshold", type=float, default=float(os.getenv("ACCURACY_THRESHOLD", "0.90")))
+    parser.add_argument("--batch-size", type=int, default=int(os.getenv("BATCH_SIZE", "32")))
     return parser.parse_args()
 
 def load_model(model_path=None):
@@ -44,7 +45,7 @@ def evaluate(model, tokenizer, device, batch_size):
     val_data = dataset[VAL_SPLIT]
 
     def tokenize(batch):
-        return tokenizer(batch[TEXT_COLUMN], truncation=True, padding="max_length", max_length=128)
+        return tokenizer(batch[TEXT_COLUMN], truncation=True, padding="max_length", max_length=MAX_LENGTH)
 
     val_tokenized = val_data.map(tokenize, batched=True)
     val_tokenized.set_format("torch", columns=["input_ids", "attention_mask", "label"])

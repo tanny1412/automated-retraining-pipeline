@@ -43,6 +43,10 @@ spec:
               value: "distilbert-base-uncased"
             - name: NUM_LABELS
               value: "2"
+            - name: LABEL_MAP
+              value: '{"0": "negative", "1": "positive"}'
+            - name: MAX_LENGTH
+              value: "128"
             - name: DATASET_NAME
               value: "sst2"
             - name: TEXT_COLUMN

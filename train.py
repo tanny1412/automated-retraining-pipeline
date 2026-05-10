@@ -9,6 +9,7 @@ NUM_LABELS = int(os.getenv("NUM_LABELS", "2"))
 DATASET_NAME = os.getenv("DATASET_NAME", "sst2")
 TEXT_COLUMN = os.getenv("TEXT_COLUMN", "sentence")
 VAL_SPLIT = os.getenv("VAL_SPLIT", "validation")
+MAX_LENGTH = int(os.getenv("MAX_LENGTH", "128"))
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -21,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=3)
-    parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--lr", type=float, default=2e-5)
+    parser.add_argument("--epochs", type=int, default=int(os.getenv("EPOCHS", "3")))
+    parser.add_argument("--batch-size", type=int, default=int(os.getenv("BATCH_SIZE", "16")))
+    parser.add_argument("--lr", type=float, default=float(os.getenv("LEARNING_RATE", "2e-5")))
     parser.add_argument("--max-samples", type=int, default=None)
     return parser.parse_args()
 
@@ -41,7 +42,7 @@ def tokenize_data(train_data, val_data):
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
     def tokenize(batch):
-        return tokenizer(batch[TEXT_COLUMN], truncation=True, padding="max_length", max_length=128)
+        return tokenizer(batch[TEXT_COLUMN], truncation=True, padding="max_length", max_length=MAX_LENGTH)
 
     train_tokenized = train_data.map(tokenize, batched=True)
     val_tokenized = val_data.map(tokenize, batched=True)

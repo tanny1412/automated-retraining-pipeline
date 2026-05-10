@@ -10,6 +10,10 @@ from evaluate import load_model, evaluate
 logging.basicConfig(level=logging.INFO, format="%(asctime)s — %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
 
+EPOCHS = int(os.getenv("EPOCHS", "3"))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "16"))
+ACCURACY_THRESHOLD = float(os.getenv("ACCURACY_THRESHOLD", "0.80"))
+
 def check_drift():
     result = subprocess.run(
         [sys.executable, "drift_detector.py"],
@@ -19,9 +23,9 @@ def check_drift():
 
 def get_accuracy(model_path=None):
     model, tokenizer, device = load_model(model_path=model_path)
-    return evaluate(model, tokenizer, device, batch_size=32)
+    return evaluate(model, tokenizer, device, batch_size=BATCH_SIZE)
 
-def retrain(epochs=3, batch_size=16):
+def retrain(epochs=EPOCHS, batch_size=BATCH_SIZE):
     logger.info("Starting retraining...")
     cmd = [sys.executable, "train.py", "--epochs", str(epochs), "--batch-size", str(batch_size)]
     max_samples = os.environ.get("MAX_SAMPLES")
@@ -64,7 +68,7 @@ if __name__ == "__main__":
         MlflowClient().get_model_version_by_alias("sentiment-classifier", "Production")
     except Exception:
         logger.info("No Production model found — running initial training")
-        retrain(epochs=3, batch_size=16)
+        retrain()
         promote_latest_to_production()
         upload_model_to_s3()
         logger.info("Initial model trained and promoted to Production")
@@ -80,7 +84,7 @@ if __name__ == "__main__":
             logger.info("Drift detected — triggering retraining")
         if production_accuracy < 0.80:
             logger.info("Accuracy below threshold — triggering retraining")
-        retrain(epochs=3, batch_size=16)
+        retrain()
         new_accuracy = get_accuracy(model_path="models/")
         logger.info(f"New model accuracy: {new_accuracy:.4f}, Production accuracy: {production_accuracy:.4f}")
         if new_accuracy > production_accuracy:
