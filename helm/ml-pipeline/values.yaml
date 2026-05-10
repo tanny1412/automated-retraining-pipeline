@@ -1,0 +1,53 @@
+aws:
+  region: us-east-1
+  ecrAccount: "354578186384"
+  s3Bucket: ml-pipeline-models-tanish
+
+model:
+  name: distilbert-base-uncased
+  numLabels: "2"
+  labelMap: '{"0": "negative", "1": "positive"}'
+  datasetName: sst2
+  textColumn: sentence
+  valSplit: validation
+  maxLength: "128"
+
+inference:
+  maxBatchSize: "32"
+  replicaCount: 1
+  hpa:
+    minReplicas: 1
+    maxReplicas: 3
+    cpuThreshold: 70
+
+mlflow:
+  modelName: sentiment-classifier
+  experimentName: sentiment-classifier
+
+training:
+  schedule: "0 * * * *"
+  epochs: "3"
+  batchSize: "16"
+  learningRate: "2e-5"
+  weightDecay: "0.01"
+  warmupSteps: "100"
+  gradClip: "1.0"
+  patience: "3"
+  accuracyThreshold: "0.80"
+  maxSamples: ""
+
+postgres:
+  user: postgres
+  password: ""
+  db: predictions
+
+grafana:
+  adminPassword: ""
+  slackWebhookUrl: ""
+
+drift:
+  baselineConfidence: "0.90"
+  baselineDominantRatio: "0.50"
+  confidenceThreshold: "0.10"
+  distributionThreshold: "0.20"
+  minPredictions: "10"

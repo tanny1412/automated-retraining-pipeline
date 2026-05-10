@@ -1,0 +1,88 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: retrain-cronjob
+spec:
+  schedule: {{ .Values.training.schedule | quote }}
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: retrain
+              image: {{ .Values.aws.ecrAccount }}.dkr.ecr.{{ .Values.aws.region }}.amazonaws.com/ml-pipeline-training:latest
+              imagePullPolicy: Always
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-secret
+                      key: DATABASE_URL
+                - name: MLFLOW_TRACKING_URI
+                  value: "http://mlflow-service:5000"
+                - name: INFERENCE_SERVICE_URL
+                  value: "http://inference-service:8000"
+                - name: MODEL_NAME
+                  value: {{ .Values.model.name }}
+                - name: NUM_LABELS
+                  value: {{ .Values.model.numLabels | quote }}
+                - name: DATASET_NAME
+                  value: {{ .Values.model.datasetName }}
+                - name: TEXT_COLUMN
+                  value: {{ .Values.model.textColumn }}
+                - name: VAL_SPLIT
+                  value: {{ .Values.model.valSplit }}
+                - name: MAX_LENGTH
+                  value: {{ .Values.model.maxLength | quote }}
+                - name: EPOCHS
+                  value: {{ .Values.training.epochs | quote }}
+                - name: BATCH_SIZE
+                  value: {{ .Values.training.batchSize | quote }}
+                - name: LEARNING_RATE
+                  value: {{ .Values.training.learningRate | quote }}
+                - name: ACCURACY_THRESHOLD
+                  value: {{ .Values.training.accuracyThreshold | quote }}
+                - name: WEIGHT_DECAY
+                  value: {{ .Values.training.weightDecay | quote }}
+                - name: WARMUP_STEPS
+                  value: {{ .Values.training.warmupSteps | quote }}
+                - name: GRAD_CLIP
+                  value: {{ .Values.training.gradClip | quote }}
+                - name: PATIENCE
+                  value: {{ .Values.training.patience | quote }}
+                - name: MAX_SAMPLES
+                  value: {{ .Values.training.maxSamples | quote }}
+                - name: MLFLOW_MODEL_NAME
+                  value: {{ .Values.mlflow.modelName }}
+                - name: MLFLOW_EXPERIMENT_NAME
+                  value: {{ .Values.mlflow.experimentName }}
+                - name: S3_BUCKET
+                  value: {{ .Values.aws.s3Bucket }}
+                - name: BASELINE_CONFIDENCE
+                  value: {{ .Values.drift.baselineConfidence | quote }}
+                - name: BASELINE_DOMINANT_RATIO
+                  value: {{ .Values.drift.baselineDominantRatio | quote }}
+                - name: CONFIDENCE_THRESHOLD
+                  value: {{ .Values.drift.confidenceThreshold | quote }}
+                - name: DISTRIBUTION_THRESHOLD
+                  value: {{ .Values.drift.distributionThreshold | quote }}
+                - name: MIN_PREDICTIONS
+                  value: {{ .Values.drift.minPredictions | quote }}
+              resources:
+                requests:
+                  memory: "6Gi"
+                  nvidia.com/gpu: "1"
+                limits:
+                  memory: "6Gi"
+                  nvidia.com/gpu: "1"
+              volumeMounts:
+                - name: models
+                  mountPath: /app/models
+
+          nodeSelector:
+            nvidia.com/gpu: "true"
+          restartPolicy: OnFailure
+          volumes:
+            - name: models
+              persistentVolumeClaim:
+                claimName: models-pvc

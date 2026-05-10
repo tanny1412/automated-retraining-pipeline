@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference-deployment
+spec:
+  replicas: {{ .Values.inference.replicaCount }}
+  selector:
+    matchLabels:
+      app: inference-app
+  template:
+    metadata:
+      labels:
+        app: inference-app
+    spec:
+      initContainers:
+        - name: model-loader
+          image: amazon/aws-cli:latest
+          command:
+            - sh
+            - -c
+            - aws s3 cp s3://${S3_BUCKET}/models/ /app/models/ --recursive
+          env:
+            - name: S3_BUCKET
+              value: {{ .Values.aws.s3Bucket }}
+          volumeMounts:
+            - name: models-volume
+              mountPath: /app/models
+      containers:
+        - name: inference-container
+          image: {{ .Values.aws.ecrAccount }}.dkr.ecr.{{ .Values.aws.region }}.amazonaws.com/ml-pipeline-inference:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DATABASE_URL
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow-service:5000"
+            - name: MODEL_NAME
+              value: {{ .Values.model.name }}
+            - name: NUM_LABELS
+              value: {{ .Values.model.numLabels | quote }}
+            - name: LABEL_MAP
+              value: {{ .Values.model.labelMap | quote }}
+            - name: MAX_LENGTH
+              value: {{ .Values.model.maxLength | quote }}
+            - name: MAX_BATCH_SIZE
+              value: {{ .Values.inference.maxBatchSize | quote }}
+            - name: MLFLOW_MODEL_NAME
+              value: {{ .Values.mlflow.modelName }}
+            - name: DATASET_NAME
+              value: {{ .Values.model.datasetName }}
+            - name: TEXT_COLUMN
+              value: {{ .Values.model.textColumn }}
+            - name: VAL_SPLIT
+              value: {{ .Values.model.valSplit }}
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "3Gi"
+          volumeMounts:
+            - name: models-volume
+              mountPath: /app/models
+      volumes:
+        - name: models-volume
+          persistentVolumeClaim:
+            claimName: models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: inference-app
+  ports:
+    - port: 8000
+      targetPort: 8000

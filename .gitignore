@@ -6,6 +6,7 @@ k8s/grafana-secret.yaml
 __pycache__/
 *.py[cod]
 .env
+helm/ml-pipeline/values.secret.yaml
 *.pt
 *.bin
 *.safetensors
