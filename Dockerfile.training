@@ -17,4 +17,4 @@ COPY retrain_if_needed.py .
 COPY drift_detector.py .
 COPY db/ ./db/
 
-CMD ["python", "retrain_if_needed.py"]
+CMD ["python3", "retrain_if_needed.py"]
