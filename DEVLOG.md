@@ -852,3 +852,15 @@ C → compare scalar against 0.70 → true/false → fire or not
 
 **Tested end to end:**
 Sent predictions with a poorly-trained model (50 samples) — confidence ~0.50. Alert went Pending → Firing after 5 minutes. Slack message received in #alerts with correct labels, annotations, and source link.
+
+**K8s wiring:**
+Two ConfigMaps + one Secret mounted into the Grafana pod:
+
+- `grafana-datasources` ConfigMap → mounted at `/etc/grafana/provisioning/datasources/`
+- `grafana-alerting` ConfigMap → mounted at `/etc/grafana/provisioning/alerting/`
+- `grafana-secret` Secret → `contact-points.yml` mounted into `/etc/grafana/provisioning/alerting/` (gitignored, applied manually like postgres-secret)
+
+Two ConfigMaps instead of one because datasources and alerting files belong in different subfolders — mounting one ConfigMap at `/etc/grafana/provisioning/` would put all files in the root and Grafana wouldn't find them.
+
+**Secrets approach:**
+`grafana-secret.yaml` is gitignored — webhook URL never touches git. Applied manually on fresh cluster deploy alongside `postgres-secret.yaml`. In production this would be managed by External Secrets Operator pulling from AWS Secrets Manager.
