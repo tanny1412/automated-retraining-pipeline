@@ -161,6 +161,42 @@ docker compose up
 # Grafana:    http://localhost:3000  (admin/admin)
 ```
 
+### EKS (fresh cluster from scratch)
+```bash
+# 1. Provision infrastructure
+cd terraform
+terraform init
+terraform plan
+terraform apply
+# Creates: VPC, EKS cluster, CPU + GPU node groups, ECR repos, S3 bucket,
+#          IAM roles, EBS CSI driver addon, OIDC provider, inference IRSA role
+
+# 2. Connect kubectl to the cluster
+aws eks update-kubeconfig --name ml-pipeline --region us-east-1
+
+# 3. Merge to main → GitHub Actions builds and pushes images to ECR automatically
+
+# 4. Verify images exist in ECR before deploying
+aws ecr describe-images --repository-name ml-pipeline-inference --region us-east-1
+
+# 5. Add inference role ARN to values.secret.yaml
+# terraform output inference_role_arn → copy the ARN → add to values.secret.yaml:
+# aws:
+#   inferenceRoleArn: arn:aws:iam::YOUR_ACCOUNT:role/ml-pipeline-inference-role
+
+# 6. Deploy platform with Helm
+cd ..
+helm install ml-pipeline ./helm/ml-pipeline \
+  -f helm/ml-pipeline/values.yaml \
+  -f helm/ml-pipeline/values.secret.yaml
+
+# 7. Verify everything is running
+kubectl get pods
+
+# 8. Tear down when done (stops all AWS billing)
+terraform destroy
+```
+
 ### Helm (any Kubernetes cluster)
 ```bash
 # 1. Edit values.yaml with your AWS account, model, and config

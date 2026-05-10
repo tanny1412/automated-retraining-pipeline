@@ -17,3 +17,7 @@ output "ecr_training_url" {
 output "inference_role_arn" {
   value = aws_iam_role.inference.arn
 }
+
+output "cluster_autoscaler_role_arn" {
+  value = aws_iam_role.cluster_autoscaler.arn
+}
