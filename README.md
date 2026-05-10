@@ -287,6 +287,20 @@ k8s/
 └── retrain-cronjob.yaml        → Automated retraining (CronJob, runs hourly, uses training image)
 ```
 
+## Helm Chart
+
+The entire platform is packaged as a Helm chart — deploy to any Kubernetes cluster by editing one file:
+
+```
+helm/ml-pipeline/
+├── Chart.yaml                  → chart metadata
+├── values.yaml                 → all configurable defaults (committed)
+├── values.secret.yaml          → real passwords — gitignored, never committed
+└── templates/                  → k8s manifests with {{ .Values.xxx }} placeholders
+```
+
+Every hardcoded value across all manifests is configurable via `values.yaml` — AWS region, ECR account, S3 bucket, model name, dataset, training hyperparameters, drift thresholds, HPA settings.
+
 ## Docker Images
 
 Two separate images — inference and training are independently deployable:
