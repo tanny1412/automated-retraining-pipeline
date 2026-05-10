@@ -13,6 +13,7 @@ MAX_LENGTH = int(os.getenv("MAX_LENGTH", "128"))
 WEIGHT_DECAY = float(os.getenv("WEIGHT_DECAY", "0.01"))
 WARMUP_STEPS = int(os.getenv("WARMUP_STEPS", "100"))
 GRAD_CLIP = float(os.getenv("GRAD_CLIP", "1.0"))
+PATIENCE = int(os.getenv("PATIENCE", "3"))
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_linear_schedule_with_warmup
@@ -77,6 +78,7 @@ def train(model, tokenizer, train_loader, val_loader, device, args):
     total_steps = len(train_loader) * args.epochs
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=WARMUP_STEPS, num_training_steps=total_steps)
     best_val_accuracy = 0.0
+    epochs_no_improve = 0
 
     for epoch in range(args.epochs):
         model.train()
@@ -121,8 +123,15 @@ def train(model, tokenizer, train_loader, val_loader, device, args):
 
         if accuracy > best_val_accuracy:
             best_val_accuracy = accuracy
+            epochs_no_improve = 0
             save_model(model, tokenizer)
             logger.info(f"New best model saved — val_accuracy: {best_val_accuracy:.4f}")
+        else:
+            epochs_no_improve += 1
+            logger.info(f"No improvement for {epochs_no_improve}/{PATIENCE} epochs")
+            if epochs_no_improve >= PATIENCE:
+                logger.info(f"Early stopping triggered — no improvement for {PATIENCE} epochs")
+                break
 
 def save_model(model, tokenizer):
     torch.save(model.state_dict(), "models/best_model.pt")
@@ -147,6 +156,7 @@ if __name__ == "__main__":
             "weight_decay": WEIGHT_DECAY,
             "warmup_steps": WARMUP_STEPS,
             "grad_clip": GRAD_CLIP,
+            "patience": PATIENCE,
         })
 
         train_data, val_data = load_data(args.max_samples)
