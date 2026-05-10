@@ -58,6 +58,16 @@ spec:
                   value: "sentiment-classifier"
                 - name: S3_BUCKET
                   value: "ml-pipeline-models-tanish"
+                - name: BASELINE_CONFIDENCE
+                  value: "0.90"
+                - name: BASELINE_DOMINANT_RATIO
+                  value: "0.50"
+                - name: CONFIDENCE_THRESHOLD
+                  value: "0.10"
+                - name: DISTRIBUTION_THRESHOLD
+                  value: "0.20"
+                - name: MIN_PREDICTIONS
+                  value: "10"
               resources:
                 requests:
                   memory: "6Gi"
