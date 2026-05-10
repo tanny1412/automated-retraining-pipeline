@@ -1032,3 +1032,270 @@ That single command deploys inference, training CronJob, MLflow, Prometheus, Gra
 
 **Interview angle:**
 Helm is the standard packaging format for Kubernetes applications — it's how real ML platforms are shipped. The difference between a personal project and a platform is whether someone else can deploy it without touching your code. Helm makes that possible: clone, fill in `values.yaml`, one command, done.
+
+---
+
+## Step 24 — Terraform: VPC Networking
+
+**Mental model:**
+
+VPC is created with two subnets, one in each AZ. Pods live inside those subnets but can't reach the internet or AWS services like S3 and ECR by default.
+
+To fix that, we create an internet gateway and attach it to the VPC — that's the door out.
+
+But having the door isn't enough. We need a rule that says "use this door." So we create one route table with one rule: all outbound traffic (`0.0.0.0/0`) goes through the internet gateway.
+
+Then we create two route table associations — one per subnet — to apply that same rule to both subnets.
+
+Now pods in either subnet can reach out to the internet, pull from ECR, read/write S3, talk to MLflow, etc.
+
+**Key terms:**
+- **VPC** — private isolated network in AWS. Nothing gets in or out by default.
+- **Subnet** — a slice of the VPC's IP range, tied to one AZ. Pods actually live here.
+- **AZ (Availability Zone)** — a physical datacenter. Two subnets across two AZs = survives one datacenter going down.
+- **CIDR block** — IP range notation. VPC gets `10.0.0.0/16` (65k IPs). Each subnet gets `10.0.0.0/24` and `10.0.1.0/24` (256 IPs each).
+- **Internet Gateway** — the door between the VPC and the internet. One per VPC.
+- **Route Table** — a list of rules: "traffic going to X should go through Y." One table, shared by both subnets.
+- **Route Table Association** — wires a subnet to a route table. Two associations, one per subnet, both pointing to the same table.
+- **`0.0.0.0/0`** — catch-all: "any destination not matched by a more specific rule." Used as the outbound default to the internet gateway.
+
+**Structure in Terraform:**
+```
+aws_vpc.main
+  └── aws_subnet.public[0]  (us-east-1a)
+  └── aws_subnet.public[1]  (us-east-1b)
+aws_internet_gateway.main   → attached to vpc
+aws_route_table.public      → rule: 0.0.0.0/0 → igw
+aws_route_table_association.public[0]  → subnet[0] uses route table
+aws_route_table_association.public[1]  → subnet[1] uses route table
+```
+
+**`count` in Terraform:**
+`count = 2` creates the same resource twice. Inside the block, `count.index` gives 0 or 1. Used for subnets and associations to avoid duplicating identical blocks.
+
+**Interview angle:**
+Two subnets across two AZs is the minimum for high availability on EKS — AWS requires it. The internet gateway + route table pattern is the foundation for any public-facing workload. In production you'd add private subnets + NAT gateway to keep pods off the public internet, but for a dev cluster public subnets with security groups is sufficient.
+
+**Public subnet path:**
+Pod initiates outbound request. Pod → node (living in public subnet, EC2 node has a public IP) → route table maps from public subnet to IGW → internet → response comes back the same way. Not safe: EC2 node has a public IP so anyone on the internet can attempt to reach it directly.
+
+**Private subnet path:**
+For safety, EC2 nodes must NOT have a public IP so we use private subnets. Outbound traffic goes from pod → node (living in private subnet, no public IP) → route table maps from private subnet to NAT gateway first (NAT lives in a public subnet and has a public IP) → NAT translates the node's private IP to its own public IP → NAT → IGW → internet → response comes back to NAT → NAT forwards back to node. Internet sees NAT's IP, never the node's. Node stays invisible. Safe.
+
+```
+Public:  pod → node (public IP) → IGW → internet
+Private: pod → node (no public IP) → NAT (public IP, translates) → IGW → internet
+```
+
+---
+
+## Step 24 (continued) — Terraform: IAM
+
+**The flow:**
+
+By default, nothing in AWS is allowed to do anything. EKS can't touch your VPC. EC2 nodes can't pull from ECR. Pods can't write to S3. Everything is locked.
+
+To unlock something, you create a **role** — a job title. Two job titles needed: Cluster Manager and Worker Node.
+
+A job title alone means nothing. You attach **policies** — rulebooks. "Cluster Manager gets the EKS cluster rulebook." "Worker Node gets four rulebooks: join the cluster, assign IPs to pods, pull from ECR, read/write S3."
+
+`assume_role_policy` says who can wear the hat. Only `eks.amazonaws.com` can wear the Cluster Manager hat. Only `ec2.amazonaws.com` can wear the Worker Node hat.
+
+```
+EKS service → assumes eks_cluster role → AmazonEKSClusterPolicy → can manage AWS resources
+
+EC2 node → assumes eks_node role → 4 policies:
+    EKSWorkerNodePolicy   → register with cluster
+    EKS_CNI_Policy        → give pods IPs from subnet
+    ECRReadOnly           → pull inference/training images
+    S3FullAccess          → read/write model weights
+```
+
+**One liner:** role = job title, policy = rulebook, assume_role_policy = who can hold this job.
+
+---
+
+## Step 24 (continued) — Full deployment flow
+
+**Terraform vs Helm:**
+- Terraform = IaC. Creates the AWS infrastructure — cluster, nodes, VPC, S3, ECR.
+- Helm = package manager for Kubernetes. Deploys your app onto that infrastructure.
+
+```
+Terraform  →  what machines exist (AWS layer)
+Helm       →  what runs on those machines (Kubernetes layer)
+```
+
+**Full sequence after terraform apply:**
+
+```
+1. terraform apply
+      → VPC, subnets, IGW, IAM, S3, ECR, EKS cluster, node groups created in AWS
+
+2. aws eks update-kubeconfig --name ml-pipeline --region us-east-1
+      → points kubectl at the real EKS cluster
+      → writes connection details into ~/.kube/config
+
+3. Copy ECR URLs from terraform output → paste into GitHub Actions variables
+      → ECR_INFERENCE_REPO and ECR_TRAINING_REPO
+      → now CI/CD knows where to push images
+
+4. helm install ml-pipeline ./helm/ml-pipeline \
+     -f helm/ml-pipeline/values.yaml \
+     -f helm/ml-pipeline/values.secret.yaml
+      → Helm fills {{ .Values.xxx }} placeholders
+      → runs kubectl apply -f behind the scenes
+      → inference, training CronJob, MLflow, Postgres, Grafana, Prometheus deployed
+
+5. kubectl get pods / kubectl get services
+      → verify everything is running
+
+6. terraform destroy (when done)
+      → tears down all AWS resources, stops billing
+```
+
+**helm install command breakdown:**
+- `ml-pipeline` — release name, used for helm upgrade/uninstall later
+- `./helm/ml-pipeline` — path to the chart (Chart.yaml + values.yaml + templates/)
+- `-f values.yaml` — defaults, committed to git
+- `-f values.secret.yaml` — real secrets, gitignored, overrides values.yaml
+
+Helm is just a smarter `kubectl apply`. You give it a chart, it renders the templates and applies all YAMLs to whatever cluster kubectl is pointing at. kubectl must point to the cluster before helm install.
+
+---
+
+## Step 24 (continued) — Terraform: outputs.tf
+
+**What outputs.tf is:**
+After `terraform apply` creates all infrastructure, outputs print the values you need to actually use what was built. Rule: if you'd have to go to the AWS console to find it after apply, it should be an output.
+
+**The four outputs and why:**
+
+`cluster_name` — needed to connect kubectl to the cluster:
+```bash
+aws eks update-kubeconfig --name ml-pipeline --region us-east-1
+```
+This writes the cluster connection details into `~/.kube/config`. After that `kubectl get pods` works.
+
+`cluster_endpoint` — the EKS API server URL (`https://ABC123.gr7.us-east-1.eks.amazonaws.com`). Just informational — AWS already knows it internally and `update-kubeconfig` writes it to `~/.kube/config` automatically. Useful for debugging if kubectl can't connect and you want to verify the URL.
+
+`ecr_inference_url` and `ecr_training_url` — needed for CI/CD. After apply you copy these URLs and paste them into GitHub Actions variables (`ECR_INFERENCE_REPO`, `ECR_TRAINING_REPO`). GitHub Actions already has the logic to push images to ECR — it just needs to know the URL. Terraform and GitHub Actions don't talk to each other directly — you're the bridge.
+
+**Two purposes, four outputs:**
+```
+cluster_name + cluster_endpoint      → connect kubectl to cluster
+ecr_inference_url + ecr_training_url → paste into GitHub Actions → CI/CD works
+```
+
+**Terraform builds the boxes. You still have to put things in the boxes and connect your tools to them.**
+
+**outputs.tf — local vs remote resolution:**
+
+Output names are just display labels. What matters is only the `value =` line.
+
+```
+cluster_name      → local  (resolves twice: outputs.tf → eks.tf → variables.tf)
+cluster_endpoint  → remote (AWS generates the URL on cluster creation)
+ecr_inference_url → remote (AWS generates full URL: account + region + repo name)
+ecr_training_url  → remote (AWS generates full URL: account + region + repo name)
+```
+
+`aws_eks_cluster.main.name` resolves locally because you set `name = var.cluster_name` in `eks.tf`. Terraform already knows it — no need to ask AWS.
+
+`aws_eks_cluster.main.endpoint` resolves remotely because there is no `endpoint =` line in `eks.tf`. AWS generates it at cluster creation time. That's why it prints `(known after apply)`.
+
+The rule: if you set it in a resource block → known now. If AWS generates it → known after apply.
+
+---
+
+## Step 24 (continued) — Terraform: terraform.tfvars + state files
+
+**terraform.tfvars vs variables.tf — same pattern as Helm:**
+```
+variables.tf       =  values.yaml         (committed, defaults)
+terraform.tfvars   =  values.secret.yaml  (gitignored, real values)
+```
+`variables.tf` declares variables and defaults. `terraform.tfvars` overrides them with your real values. In a team, everyone has their own `terraform.tfvars` — different AWS accounts, different bucket names, different regions — without touching committed code.
+
+**Files generated by Terraform — all gitignored:**
+
+`.terraform/` — local cache folder. `terraform init` downloads the AWS provider plugin here. Like `node_modules` in Node.js. Never commit — it's huge.
+
+`.terraform.lock.hcl` — records the exact version of the AWS provider downloaded. Like `package-lock.json`. Ensures everyone uses the same provider version. Some teams commit it, some don't.
+
+`terraform.tfstate` — the most important one. After `terraform apply`, Terraform writes every resource it created here — VPC ID, subnet IDs, EKS cluster ARN, everything. Terraform uses this to know what already exists so it doesn't create duplicates on the next apply. Never commit — contains real AWS resource IDs and sometimes secrets. In a team, store it remotely in S3 so everyone shares the same state.
+
+`terraform.tfstate.backup` — backup of the previous state, created automatically before every apply.
+
+**VPC vs IAM — two separate guards:**
+
+VPC and IAM solve different problems. They are not connected — they are parallel concerns.
+
+- **VPC** = network security. Controls where traffic can flow. Who can reach your nodes over the network.
+- **IAM** = permission security. Controls what AWS services can do. Who can call AWS APIs.
+
+```
+VPC asks:  can this network packet reach this machine?
+IAM asks:  can this service/node call this AWS API?
+```
+
+Both checks have to pass. VPC alone doesn't help if IAM blocks the API call. IAM alone doesn't help if VPC blocks the network traffic.
+
+Example — pod wants to pull from ECR:
+```
+→ VPC: can traffic reach ECR? (network check)       ✓
+→ IAM: is the node allowed to pull? (permission check) ✓
+→ both yes → image pulled
+```
+
+Two separate guards at two separate doors. You need both.
+
+**IAM node policies explained:**
+
+```
+EKSWorkerNodePolicy  → node registers itself with EKS cluster, gets pod assignments
+EKS_CNI_Policy       → node assigns private IPs (10.0.x.x) from subnet CIDR to each pod
+ECRReadOnly          → node pulls inference + training Docker images from ECR
+S3FullAccess         → pods read/write model weights to S3
+```
+
+CNI = Container Network Interface. Each pod gets its own private IP from the subnet's CIDR range so pods can talk to each other. Without CNI policy, pods have no network identity.
+
+**Why EKS control plane and your nodes are on separate VPCs but still work:**
+
+EKS control plane lives in AWS's own VPC (managed by AWS, invisible to you). Your EC2 nodes live in your VPC. They're not disconnected — AWS injects a **private endpoint** into your VPC that tunnels directly to the EKS control plane. Nodes talk to the Kubernetes API through that endpoint, never crossing the public internet.
+
+```
+AWS's VPC                    Your VPC
+─────────────────            ──────────────────────────
+EKS control plane  ←──────── private endpoint (injected by AWS)
+(API server,                 EC2 nodes talk here to reach EKS
+ scheduler, etc.)
+```
+
+`AmazonEKSWorkerNodePolicy` gives nodes permission to call that EKS API — "register me as a node, tell me which pods to run." Without it, the node can reach the endpoint (VPC handles that) but EKS rejects the API call (IAM blocks it).
+
+VPC and IAM working together again: VPC = can the node reach the endpoint. IAM = is the node allowed to talk to EKS.
+
+---
+
+## Step 24 (continued) — Terraform: Node Groups + Scheduling
+
+**Why two node groups:**
+
+Not all workloads need the same machine. Inference runs 24/7 on CPU. Training runs once an hour and needs a GPU. Two node groups = two fleets sized for their job:
+
+```
+cpu-nodes  →  t3.large      →  inference, mlflow, postgres, grafana, prometheus
+gpu-nodes  →  g4dn.xlarge   →  retrain pod only (scales 0→1→0)
+```
+
+GPU group has `desired_size = 0, min_size = 0` — Cluster Autoscaler spins up a GPU machine only when training is waiting, kills it when done. No GPU cost when idle.
+
+**How Terraform and Kubernetes connect:**
+
+Terraform creates the GPU node and labels it `nvidia.com/gpu: true`. The retrain CronJob has `nodeSelector: nvidia.com/gpu: true`. Kubernetes reads both at scheduling time and places the pod on the matching node. Terraform doesn't know about the CronJob. The CronJob doesn't know about Terraform. They just agree on the label name — that's the contract.
+
+**Scheduling — definition:**
+
+The art of Kubernetes deciding which node to place pods on, based on the resources demanded and labels selected.
