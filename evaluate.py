@@ -33,11 +33,17 @@ def load_model(model_path=None):
         model.load_state_dict(torch.load(f"{model_path}/best_model.pt", map_location=device))
         logger.info(f"Model loaded from disk: {model_path}")
     else:
-        artifact_path = mlflow.artifacts.download_artifacts(f"models:/{MLFLOW_MODEL_NAME}@Production")
+        try:
+            artifact_path = mlflow.artifacts.download_artifacts(f"models:/{MLFLOW_MODEL_NAME}@Production")
+            if not os.path.exists(f"{artifact_path}/best_model.pt"):
+                raise FileNotFoundError(f"No weights at {artifact_path}/best_model.pt")
+            logger.info("Model loaded from Registry (Production)")
+        except Exception as e:
+            logger.warning(f"Registry load failed ({e}), falling back to disk")
+            artifact_path = "models"
         tokenizer = AutoTokenizer.from_pretrained(f"{artifact_path}/tokenizer")
         model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=NUM_LABELS)
         model.load_state_dict(torch.load(f"{artifact_path}/best_model.pt", map_location=device))
-        logger.info("Model loaded from Registry (Production)")
     model.to(device)
     model.eval()
     return model, tokenizer, device
