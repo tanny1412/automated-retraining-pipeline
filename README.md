@@ -134,6 +134,14 @@ python retrain_if_needed.py
 
 ### Docker
 ```bash
+# Configure environment
+cp .env.example .env
+# Edit .env and set SLACK_WEBHOOK_URL to your Slack incoming webhook URL
+
+# Set up Grafana Slack alerting
+cp grafana/provisioning/alerting/contact-points.yml.example grafana/provisioning/alerting/contact-points.yml
+# Edit contact-points.yml and replace the placeholder URL with your Slack webhook URL
+
 # Start all services
 docker compose up
 
@@ -190,6 +198,27 @@ Prometheus scrapes `/metrics` every 15 seconds. Key metrics:
 | `request_latency_seconds` | Full API request latency histogram |
 
 Grafana dashboards at `http://localhost:3000` visualize all metrics in real time.
+
+## CI/CD Setup
+
+Before pushing, configure these in your GitHub repository settings:
+
+**Secrets** (`Settings → Secrets and variables → Actions → Secrets`):
+| Secret | Description |
+|--------|-------------|
+| `AWS_ACCESS_KEY_ID` | AWS IAM access key |
+| `AWS_SECRET_ACCESS_KEY` | AWS IAM secret key |
+| `POSTGRES_PASSWORD` | PostgreSQL password (optional — defaults to `postgres`) |
+
+**Variables** (`Settings → Secrets and variables → Actions → Variables`):
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `AWS_REGION` | `us-east-1` | AWS region for ECR and EKS |
+| `ECR_INFERENCE_REPO` | `ml-pipeline-inference` | ECR repository for inference image |
+| `ECR_TRAINING_REPO` | `ml-pipeline-training` | ECR repository for training image |
+| `EKS_CLUSTER_NAME` | `ml-pipeline` | EKS cluster name |
+| `POSTGRES_USER` | `postgres` | PostgreSQL user (optional) |
+| `POSTGRES_DB` | `predictions` | PostgreSQL database name (optional) |
 
 ## CI/CD + Deploy Flow
 
