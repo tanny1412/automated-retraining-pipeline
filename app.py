@@ -1,5 +1,7 @@
 # CI/CD test
 import os
+
+MODEL_NAME = os.getenv("MODEL_NAME", "distilbert-base-uncased")
 import mlflow
 from mlflow.tracking import MlflowClient
 import torch
@@ -33,7 +35,7 @@ def load_model_from_registry():
         import logging
         logging.getLogger(__name__).warning(f"Registry load failed ({e}), falling back to disk")
         artifact_path = "models"
-    loaded_model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
+    loaded_model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2)
     loaded_model.load_state_dict(torch.load(f"{artifact_path}/best_model.pt", map_location=device))
     loaded_model.to(device)
     loaded_model.eval()

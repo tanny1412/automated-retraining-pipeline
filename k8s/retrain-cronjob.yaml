@@ -22,6 +22,8 @@ spec:
                   value: "http://mlflow-service:5000"
                 - name: INFERENCE_SERVICE_URL
                   value: "http://inference-service:8000"
+                - name: MODEL_NAME
+                  value: "distilbert-base-uncased"
               resources:
                 requests:
                   memory: "6Gi"

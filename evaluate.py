@@ -1,7 +1,10 @@
+import os
 import argparse
 import logging
 import mlflow
 import torch
+
+MODEL_NAME = os.getenv("MODEL_NAME", "distilbert-base-uncased")
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from torch.utils.data import DataLoader
@@ -19,13 +22,13 @@ def load_model(model_path=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     if model_path:
         tokenizer = AutoTokenizer.from_pretrained(f"{model_path}/tokenizer")
-        model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
+        model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2)
         model.load_state_dict(torch.load(f"{model_path}/best_model.pt", map_location=device))
         logger.info(f"Model loaded from disk: {model_path}")
     else:
         artifact_path = mlflow.artifacts.download_artifacts("models:/sentiment-classifier@Production")
         tokenizer = AutoTokenizer.from_pretrained(f"{artifact_path}/tokenizer")
-        model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
+        model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2)
         model.load_state_dict(torch.load(f"{artifact_path}/best_model.pt", map_location=device))
         logger.info("Model loaded from Registry (Production)")
     model.to(device)

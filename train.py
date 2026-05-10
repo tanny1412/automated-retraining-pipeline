@@ -1,7 +1,10 @@
+import os
 import argparse
 import logging
 import mlflow
 from mlflow.tracking import MlflowClient
+
+MODEL_NAME = os.getenv("MODEL_NAME", MODEL_NAME)
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -31,7 +34,7 @@ def load_data(max_samples=None):
     return train_data, val_data
 
 def tokenize_data(train_data, val_data):
-    tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
     def tokenize(batch):
         return tokenizer(batch["sentence"], truncation=True, padding="max_length", max_length=128)
@@ -53,7 +56,7 @@ def get_model_and_loaders(train_tokenized, val_tokenized, batch_size):
         device = torch.device("cpu")
     logger.info(f"Using device: {device}")
 
-    model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=2)
+    model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2)
     model = model.to(device)
 
     train_loader = DataLoader(train_tokenized, batch_size=batch_size, shuffle=True)
@@ -119,7 +122,7 @@ if __name__ == "__main__":
             "batch_size": args.batch_size,
             "lr": args.lr,
             "max_samples": args.max_samples,
-            "model": "distilbert-base-uncased",
+            "model": MODEL_NAME,
             "dataset": "sst2",
         })
 

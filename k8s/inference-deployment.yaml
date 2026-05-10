@@ -39,6 +39,8 @@ spec:
                   key: DATABASE_URL
             - name: MLFLOW_TRACKING_URI
               value: "http://mlflow-service:5000"
+            - name: MODEL_NAME
+              value: "distilbert-base-uncased"
           resources:
             requests:
               cpu: "500m"
