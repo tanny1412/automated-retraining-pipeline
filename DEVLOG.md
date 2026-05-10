@@ -1230,6 +1230,108 @@ ecr_inference_url + ecr_training_url → paste into GitHub Actions → CI/CD wor
 
 **Terraform builds the boxes. You still have to put things in the boxes and connect your tools to them.**
 
+---
+
+## Step 24 (continued) — EKS Deployment Bugs + Fixes
+
+**Bug 1: ECR repos already existed**
+Error: `RepositoryAlreadyExistsException` on `terraform apply`. ECR repos were created manually before Terraform knew about them.
+Fix: Deleted repos from AWS console and re-ran `terraform apply`. Terraform recreated them and added them to state.
+Lesson: Terraform only manages what's in its state. Pre-existing resources must be imported (`terraform import`) or deleted first.
+
+**How to never hit this again:**
+Terraform only knows about resources it created. If a resource exists in AWS but not in state, Terraform tries to create it again and fails.
+- Never create AWS resources manually if Terraform is managing them
+- If something already exists, import it: `terraform import aws_ecr_repository.inference ml-pipeline-inference`
+- Correct flow: `terraform init` → `terraform plan` → import any pre-existing resources → `terraform apply`
+- In a clean AWS account with nothing pre-existing: just init, plan, apply. Import only when needed.
+
+---
+
+**Bug 2: Grafana CrashLoopBackOff — volume mount conflict**
+Error: `mount ... not a directory`. Two volumes were trying to use the same directory:
+- `grafana-alerting` ConfigMap mounted to `/etc/grafana/provisioning/alerting/` (whole directory)
+- `grafana-secret` tried to mount `contact-points.yml` as a file inside that same directory
+
+Kubernetes can't mount a file inside an already-mounted directory from a different volume.
+Fix: Moved `contact-points.yml` directly into the `grafana-alerting` ConfigMap using `{{ .Values.grafana.slackWebhookUrl }}`. Removed the separate secret volume mount entirely. One volume, one directory, three files inside it — no conflict.
+
+**How to never hit this again:**
+Two Kubernetes rules:
+1. One volume owns one directory
+2. You can't mount a file inside a directory already owned by a different volume
+
+When you see `mount ... not a directory` — look at volumeMounts, find two that overlap on the same path.
+Fix: either put everything in one volume, or mount the second volume to a completely different path.
+Mental check before writing volumeMounts: do any two mounts share the same directory path? If yes — conflict.
+
+---
+
+**Bug 3: PVCs stuck Pending — EBS CSI driver not installed**
+Error: `binding volumes: context deadline exceeded`. PVCs using `gp2` storage class never bound.
+Root cause: EKS 1.35 doesn't include the EBS CSI driver by default. The old in-tree `kubernetes.io/aws-ebs` provisioner doesn't work on newer EKS versions.
+Fix:
+1. Attached `AmazonEBSCSIDriverPolicy` to the node IAM role
+2. Created OIDC provider for the cluster
+3. Created IAM role `ml-pipeline-ebs-csi-role` with OIDC trust for `kube-system:ebs-csi-controller-sa`
+4. Installed `aws-ebs-csi-driver` addon with the service account role ARN
+Lesson: On EKS 1.23+, always install the EBS CSI driver addon. Add it to Terraform `aws_eks_addon` resource so it's automatic next time.
+
+---
+
+**Bug 4: Inference init container — no AWS credentials**
+Error: `fatal error: Unable to locate credentials`. The init container (aws-cli) couldn't download model weights from S3.
+Root cause: Pods on EKS can't reach IMDS (EC2 metadata) by default because the IMDSv2 hop limit is 1. Pods need hop limit 2 since they go through an extra network hop through the node.
+Fix attempt 1: Increased hop limit to 2 and set `HttpTokens: optional` — still failed.
+Fix attempt 2: IRSA (IAM Roles for Service Accounts):
+1. Created IAM role `ml-pipeline-inference-role` with `AmazonS3FullAccess` and OIDC trust for `default:default` service account
+2. Annotated the default service account: `eks.amazonaws.com/role-arn=...`
+3. Restarted the inference deployment
+Result: Init container passed — S3 download worked.
+
+---
+
+**Bug 5: Inference image not found in ECR**
+Error: `not found` — ECR repo exists but `:latest` tag was never pushed.
+Root cause: GitHub Actions only triggers on push to `main`. We were on the `terraform` branch.
+Fix: Merged terraform branch to main → GitHub Actions triggered → built and pushed inference image to ECR automatically.
+Lesson: The cluster can be set up from any branch, but CI/CD only runs on main. Merge before expecting images to be available.
+
+---
+
+**Bug 6: Insufficient CPU — pod stuck Pending**
+Error: `0/1 nodes are available: 1 Insufficient cpu`. Single t3.large node was overloaded with all pods.
+Fix: Deleted the old terminating inference pod to free up CPU. New pod scheduled successfully.
+
+---
+
+**Three config layers — nothing overlaps:**
+```
+Terraform variables   →  infrastructure (instance types, node counts, VPC CIDR)
+GitHub Actions vars   →  CI/CD (where to push images, which cluster to update)
+Helm values           →  app config (model, dataset, hyperparameters, thresholds)
+```
+
+GitHub Actions variables only need updating if:
+- Cluster name changes → update `EKS_CLUSTER_NAME`
+- ECR repo names change → update `ECR_INFERENCE_REPO`, `ECR_TRAINING_REPO`
+- AWS region changes → update `AWS_REGION`
+
+Everything else (model, dataset, hyperparameters, node counts) never touches GitHub Actions variables.
+
+**What goes in Secrets vs Variables in GitHub Actions:**
+- Secrets: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `POSTGRES_PASSWORD` — sensitive credentials
+- Variables: `AWS_REGION`, `ECR_INFERENCE_REPO`, `ECR_TRAINING_REPO`, `EKS_CLUSTER_NAME`, `POSTGRES_USER`, `POSTGRES_DB` — non-sensitive config
+
+Workflow uses `${{ secrets.X }}` for secrets and `${{ vars.X }}` for variables. Putting a variable in the wrong place causes "Input required and not supplied" errors.
+
+**Key lessons from first EKS deploy:**
+1. Always install EBS CSI driver addon — add to Terraform as `aws_eks_addon`
+2. Always set up IRSA for any pod that needs AWS credentials — don't rely on IMDS
+3. Add OIDC provider to Terraform so it's automatic
+4. ECR images must exist before pods can start — CI/CD must run before deploying
+5. Single node clusters run out of CPU fast — size nodes appropriately
+
 **outputs.tf — local vs remote resolution:**
 
 Output names are just display labels. What matters is only the `value =` line.

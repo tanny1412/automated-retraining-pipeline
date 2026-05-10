@@ -2,6 +2,7 @@ aws:
   region: us-east-1
   ecrAccount: "354578186384"
   s3Bucket: ml-pipeline-models-tanish
+  inferenceRoleArn: ""
 
 model:
   name: distilbert-base-uncased

@@ -11,6 +11,8 @@ spec:
     metadata:
       labels:
         app: inference-app
+      annotations:
+        eks.amazonaws.com/role-arn: {{ .Values.aws.inferenceRoleArn }}
     spec:
       initContainers:
         - name: model-loader

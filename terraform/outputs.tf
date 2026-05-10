@@ -13,3 +13,7 @@ output "ecr_inference_url" {
 output "ecr_training_url" {
   value = aws_ecr_repository.training.repository_url
 }
+
+output "inference_role_arn" {
+  value = aws_iam_role.inference.arn
+}
