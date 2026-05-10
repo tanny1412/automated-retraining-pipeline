@@ -134,6 +134,14 @@ python retrain_if_needed.py
 
 ### Docker
 ```bash
+# Configure environment
+cp .env.example .env
+# Edit .env and set SLACK_WEBHOOK_URL to your Slack incoming webhook URL
+
+# Set up Grafana Slack alerting
+cp grafana/provisioning/alerting/contact-points.yml.example grafana/provisioning/alerting/contact-points.yml
+# Edit contact-points.yml and replace the placeholder URL with your Slack webhook URL
+
 # Start all services
 docker compose up
 
