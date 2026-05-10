@@ -911,3 +911,28 @@ VAL_SPLIT=test
 
 **Interview angle:**
 This is the line between a script and a platform. The training loop, tokenizer, inference server, drift evaluation, and model registry are all task-agnostic now. Swapping datasets is config, not code. This mirrors how real MLOps platforms (SageMaker Pipelines, Vertex AI) work — the infrastructure is fixed, the model and data are parameters.
+
+---
+
+## Step 20 — Production-Grade Training Loop
+
+**What changed:**
+
+**LABEL_MAP env var** — `app.py` was hardcoded to return "positive"/"negative" for any model. Now reads from `LABEL_MAP={"0": "negative", "1": "positive"}`. For AG News: `{"0": "World", "1": "Sports", "2": "Business", "3": "Sci/Tech"}`. Without this, NUM_LABELS=4 would serve wrong labels.
+
+**Full hyperparameter configurability** — every training knob is now an env var with a production-tested default:
+- `MAX_LENGTH=128`, `EPOCHS=3`, `BATCH_SIZE=16`, `LEARNING_RATE=2e-5`
+- `ACCURACY_THRESHOLD=0.80`, `WEIGHT_DECAY=0.01`, `WARMUP_STEPS=100`, `GRAD_CLIP=1.0`
+
+**Best model checkpoint** — previously saved the last epoch's model. Now saves only when val accuracy improves. If epoch 2 peaks and epoch 3 overfits, you get epoch 2's weights.
+
+**Linear warmup + LR decay** — flat LR is not how transformers are fine-tuned. Added `get_linear_schedule_with_warmup`: ramps from 0 → peak LR over `WARMUP_STEPS` steps, then decays linearly to ~0 by end of training. Warmup prevents the randomly initialized classification head from destroying pretrained DistilBERT weights early in training.
+
+**Gradient clipping** — `clip_grad_norm_(model.parameters(), GRAD_CLIP)` called between `loss.backward()` and `optimizer.step()`. If a gradient norm exceeds 1.0, it's scaled down. Acts as a safety net — does nothing during normal training, prevents catastrophic weight updates on bad batches.
+
+**Weighted F1 score** — `f1_score(all_labels, all_preds, average="weighted")` from sklearn, logged alongside accuracy in both `evaluate.py` and `retrain_if_needed.py`. Accuracy is misleading on imbalanced datasets. Weighted F1 accounts for class distribution.
+
+**Bug fixed** — `ACCURACY_THRESHOLD` was defined but never used in the actual decision logic in `retrain_if_needed.py`. Lines 80 and 85 still had `0.80` hardcoded. Fixed to use `ACCURACY_THRESHOLD`.
+
+**Interview angle:**
+The training loop now matches what you'd see in a production fine-tuning job — warmup + decay LR, gradient clipping, weight regularization, best checkpoint, and F1 evaluation. Flat LR with no regularization is the first thing an ML engineer notices in a review.
