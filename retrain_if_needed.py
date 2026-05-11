@@ -21,6 +21,9 @@ def check_drift():
         [sys.executable, "drift_detector.py"],
         capture_output=False
     )
+    if result.returncode not in (0, 1):
+        logger.warning(f"drift_detector.py exited with code {result.returncode} — treating as no drift")
+        return False
     return result.returncode == 1
 
 def get_accuracy(model_path=None):
