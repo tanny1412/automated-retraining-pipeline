@@ -14,10 +14,12 @@ kubectl annotate serviceaccount default \
   --overwrite
 
 echo "==> Installing Cluster Autoscaler..."
+CA_ROLE_ARN=$(cd terraform && terraform output -raw cluster_autoscaler_role_arn)
 helm repo add autoscaler https://kubernetes.github.io/autoscaler --force-update
 helm upgrade --install cluster-autoscaler autoscaler/cluster-autoscaler \
   --set autoDiscovery.clusterName=ml-pipeline \
-  --set awsRegion=us-east-1
+  --set awsRegion=us-east-1 \
+  --set rbac.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=$CA_ROLE_ARN
 
 echo "==> Deploying platform with Helm..."
 helm upgrade --install ml-pipeline ./helm/ml-pipeline \
