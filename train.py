@@ -32,7 +32,7 @@ def get_args():
     parser.add_argument("--epochs", type=int, default=int(os.getenv("EPOCHS", "3")))
     parser.add_argument("--batch-size", type=int, default=int(os.getenv("BATCH_SIZE", "16")))
     parser.add_argument("--lr", type=float, default=float(os.getenv("LEARNING_RATE", "2e-5")))
-    parser.add_argument("--max-samples", type=int, default=int(os.getenv("MAX_SAMPLES", "0")) or None)
+    parser.add_argument("--max-samples", type=int, default=int(os.getenv("MAX_SAMPLES") or "0") or None)
     return parser.parse_args()
 
 def load_data(max_samples=None):
