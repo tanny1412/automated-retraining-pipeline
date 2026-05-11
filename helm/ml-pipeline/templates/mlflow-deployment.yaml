@@ -12,6 +12,13 @@ spec:
       labels:
         app: mlflow-app
     spec:
+      initContainers:
+        - name: fix-mlruns
+          image: busybox
+          command: ["sh", "-c", "rm -rf /mlruns/lost+found"]
+          volumeMounts:
+            - name: mlruns
+              mountPath: /mlruns
       containers:
         - name: mlflow-container
           image: ghcr.io/mlflow/mlflow:v2.21.3

@@ -1442,3 +1442,371 @@ Terraform creates the GPU node and labels it `nvidia.com/gpu: true`. The retrain
 **Scheduling — definition:**
 
 The art of Kubernetes deciding which node to place pods on, based on the resources demanded and labels selected.
+
+---
+
+## IRSA — How It Works (interview explanation)
+
+**The one-sentence version:**
+"Service accounts are how you scope AWS permissions to specific pods — not to the whole cluster, not to the node, just that one workload."
+
+**The three steps:**
+
+1. **OIDC provider** — a trust agreement with AWS. You tell AWS: "this EKS cluster has its own identity system, trust it." Without this, AWS doesn't know your cluster exists.
+
+2. **IAM role** — says two things: what it can do (S3 access) and who can use it (only the inference service account from this specific cluster). Even though AWS trusts the cluster, not every pod can use this role.
+
+3. **Annotation** — you put the role ARN on the Kubernetes service account. The pod knows which role to ask for. AWS issues a short-lived token (1 hour) instead of a stored password.
+
+**The flow:**
+```
+inference pod → inference service account → IAM role → S3 access
+```
+
+Other pods have different service accounts → different roles → different access.
+
+**Why it matters:**
+No static credentials stored anywhere. If a pod is compromised, the token expires in 1 hour. You can't do this with node-level IAM roles — every pod on the node would share the same permissions.
+
+**Tanish's own explanation (interview-ready):**
+"We made an OIDC provider so AWS trusts the EKS cluster. Then we made an IAM role with S3 access policy. Then for the specific inference pod, we made a service account and gave it that role via the role's ARN annotated on the service account. Pod starts, gets a temporary token for that role, accesses S3. No passwords stored anywhere."
+
+---
+
+## Step 25 — GPU Training on EKS: Every Bug, Every Fix
+
+This step covers getting real GPU-accelerated training running end-to-end on EKS. Every bug below was hit in production, not locally.
+
+---
+
+### Bug 1: Cluster Autoscaler couldn't scale GPU node group from zero
+
+**Symptom:** Retrain pod stuck `Pending` with event: `No expansion options`. CA log: `NodeAffinity not satisfied`.
+
+**Root cause:** `aws_eks_node_group` tags in Terraform do NOT propagate to the underlying ASG that CA actually reads. So CA couldn't see the GPU label on the node group and didn't know the GPU node group could satisfy the pod's `nodeSelector: nvidia.com/gpu: true`.
+
+**The real fix:** Add `eks:DescribeNodegroup` to the CA IAM policy. CA has a special code path — when it can't read ASG tags, it calls `DescribeNodegroup` directly to read MNG labels. Without this permission, the API call fails silently and CA skips the group.
+
+```hcl
+{ Effect = "Allow", Action = ["eks:DescribeNodegroup"], Resource = "*" }
+```
+
+**Interview angle:** This is a known AWS quirk — the Terraform resource tags and ASG tags are separate. The fix is an IAM permission, not a Terraform tag. If CA can't scale from zero on a GPU node group, check `eks:DescribeNodegroup` first.
+
+---
+
+### Bug 2: EC2 GPU quota = 0
+
+**Symptom:** Node group tried to scale up, EC2 returned: `You have requested more instances (1) than your current instance limit of 0 allows for the selected instance type`.
+
+**Root cause:** New AWS accounts have a default quota of 0 for G-instance types (`g4dn.xlarge`, etc.). GPU instances require an explicit quota increase request.
+
+**Fix:** AWS Console → Service Quotas → EC2 → "Running On-Demand G and VT instances" → Request increase to 4. Approved same day.
+
+**Interview angle:** GPU quotas are always 0 by default. Always request the quota before your first GPU deployment — not when the pod fails.
+
+---
+
+### Bug 3: terraform destroy failed — LoadBalancer left behind
+
+**Symptom:** `terraform destroy` hung and failed because ELB (Elastic Load Balancer) created by Kubernetes `LoadBalancer` services still existed in the VPC.
+
+**Root cause:** Terraform created the VPC but doesn't know about the ELB — Kubernetes created it dynamically when a `Service: type: LoadBalancer` was applied. Terraform can't destroy the VPC while the ELB is still attached.
+
+**Fix:** Always `helm uninstall ml-pipeline` before `terraform destroy`. Helm deletion triggers Kubernetes to delete the Services, which triggers AWS to delete the ELBs.
+
+```bash
+helm uninstall ml-pipeline      # kills ELBs
+terraform destroy               # now VPC is clean
+```
+
+**Interview angle:** Kubernetes-managed AWS resources (ELBs, EBS volumes from PVCs) are outside Terraform's state. Always clean up Kubernetes resources before destroying Terraform infrastructure.
+
+---
+
+### Bug 4: S3 backend deleted — chicken-and-egg
+
+**Symptom:** Terraform couldn't initialize because the S3 bucket used as the remote backend no longer existed (deleted manually by mistake).
+
+**Root cause:** S3 remote backend is a bootstrap problem — Terraform needs the bucket to exist before it can run, but it can't create the bucket using itself.
+
+**Fix:** Recreate the S3 bucket manually, then re-import any pre-existing resources:
+```bash
+aws s3api create-bucket --bucket ml-pipeline-tf-state-tanish --region us-east-1
+aws s3api put-bucket-versioning --bucket ml-pipeline-tf-state-tanish \
+  --versioning-configuration Status=Enabled
+terraform import aws_s3_bucket.tf_state ml-pipeline-tf-state-tanish
+```
+
+**Interview angle:** The S3 backend bucket itself must be created outside of Terraform — it's the one resource Terraform can't manage with Terraform. Document this in the README as a one-time manual setup step.
+
+---
+
+### Bug 5: AZ mismatch — VolumeBinding failed
+
+**Symptom:** Training pod stuck `Pending` with event: `volume node affinity conflict`. EBS PVC was bound to `us-east-1a` but the GPU node spun up in `us-east-1b`.
+
+**Root cause:** EBS volumes are AZ-specific — they can only be mounted by nodes in the same AZ. The GPU node group had both subnets (both AZs) available, so CA picked randomly. The PVC happened to land in a different AZ.
+
+**Fix:** Lock the GPU node group to a single subnet (one AZ) so CA always spins the GPU node into the same AZ where the PVC is.
+
+```hcl
+resource "aws_eks_node_group" "gpu" {
+  subnet_ids = [aws_subnet.public[1].id]  # locked to us-east-1b only
+}
+```
+
+**Interview angle:** EBS = ReadWriteOnce, single-AZ. If you have multi-AZ node groups and EBS PVCs, you'll hit AZ mismatch eventually. Either lock the node group to one AZ, or use EFS (ReadWriteMany, multi-AZ).
+
+---
+
+### Bug 6: ReadWriteOnce PVC conflict — two pods mounting the same volume
+
+**Symptom:** One of inference or retrain pod stuck in `Pending` or `ContainerCreating` because the other pod already had the `models-pvc` mounted.
+
+**Root cause:** EBS volumes are `ReadWriteOnce` — only one pod on one node can mount them at a time. Inference and the retrain CronJob were both trying to mount `models-pvc` simultaneously.
+
+**Fix:** Switch the retrain CronJob from PVC to `emptyDir`. Training doesn't need to persist files locally — it uploads directly to S3 after training. Only the inference pod needs persistent storage.
+
+```yaml
+volumes:
+  - name: models
+    emptyDir: {}   # temporary disk, gone when pod exits
+```
+
+**Why this is correct:** `emptyDir` = disk space on the node, alive only as long as the pod. Training writes weights → uploads to S3 → pod exits → disk cleaned. Inference reads from PVC (downloaded from S3 by init container). The two never conflict.
+
+---
+
+### Bug 7: Ephemeral storage exhausted — pod evicted
+
+**Symptom:** Training pod evicted mid-training with reason: `The node was low on resource: ephemeral-storage`.
+
+**Root cause:** The `nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04` image is ~5.3GB. The GPU node's default root EBS volume was only 20GB — and after the OS, Kubernetes system files, and CUDA image, there was barely 2GB left. Not enough for model weights + dataset + training artifacts.
+
+**Fix:** Add a launch template to the GPU node group with a 100GB root volume:
+
+```hcl
+resource "aws_launch_template" "gpu" {
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = 100
+      volume_type           = "gp3"
+      delete_on_termination = true
+    }
+  }
+}
+```
+
+**Interview angle:** CUDA base images are huge. Always size GPU node root volumes generously — 100GB minimum. The default 20GB will silently run out during image pull or training.
+
+---
+
+### Bug 8: `python` command not found in container
+
+**Symptom:** CronJob pod immediately `Error` with: `exec: "python": executable file not found`.
+
+**Root cause:** `Dockerfile.training` used `CMD ["python", "retrain_if_needed.py"]` but the Ubuntu 22.04 base image only installs `python3.11` — there's no `python` symlink by default.
+
+**Fix:**
+```dockerfile
+CMD ["python3", "retrain_if_needed.py"]
+```
+
+**Why:** On Ubuntu, `python` is unset by default to avoid ambiguity between Python 2 and 3. Always use `python3` explicitly in Dockerfiles based on Ubuntu/Debian.
+
+---
+
+### Bug 9: MAX_SAMPLES empty string crash
+
+**Symptom:** Training pod crashed immediately with `ValueError: invalid literal for int() with base 10: ''`.
+
+**Root cause:** `train.py` had `int(os.getenv("MAX_SAMPLES"))`. In Kubernetes, env vars set to empty string `""` are still set — `os.getenv` returns `""`, and `int("")` raises ValueError.
+
+**Fix:**
+```python
+parser.add_argument("--max-samples", type=int,
+    default=int(os.getenv("MAX_SAMPLES") or "0") or None)
+```
+
+`or "0"` converts empty string to `"0"` before calling `int()`. The outer `or None` converts `0` to `None` so "no limit" is the default.
+
+**Interview angle:** Always guard env vars that could be empty string. `os.getenv("X") or "default"` is the safe pattern. `os.getenv("X", "default")` doesn't help here — it only kicks in when the var is unset, not when it's set to `""`.
+
+---
+
+### Bug 10: MLflow crashed on `lost+found` directory
+
+**Symptom:** MLflow pod crashed with `MlflowException: Invalid experiment_id: lost+found`.
+
+**Root cause:** Fresh EBS ext4 volumes always have a `lost+found` directory at the root — it's created by the filesystem for fsck recovery. MLflow scans `/mlruns/` and treats every directory as an experiment ID. `lost+found` isn't a valid integer ID, so MLflow crashed.
+
+**Fix:** Add a busybox init container that deletes `lost+found` before MLflow starts:
+
+```yaml
+initContainers:
+  - name: fix-mlruns
+    image: busybox
+    command: ["sh", "-c", "rm -rf /mlruns/lost+found"]
+    volumeMounts:
+      - name: mlruns
+        mountPath: /mlruns
+```
+
+**Why init container:** Init containers run and exit before the main container starts. Guaranteed to complete before MLflow ever sees the directory.
+
+**Interview angle:** `lost+found` appearing in fresh EBS volumes is a well-known gotcha. PostgreSQL hits the same issue (refuses to init in a non-empty dir) — fix is `PGDATA` env var pointing to a subdirectory.
+
+---
+
+### Bug 11: PIL.Image.Resampling AttributeError
+
+**Symptom:** Training pod crashed during dataset loading with `AttributeError: module 'PIL.Image' has no attribute 'Resampling'`.
+
+**Root cause:** `Resampling` was added in Pillow 9.1.0. The Ubuntu 22.04 system Python ships with an older Pillow. `transformers` internally uses `PIL.Image.Resampling` when processing image datasets.
+
+**Fix:** Pin Pillow in requirements.txt:
+```
+pillow>=9.1.0
+```
+
+**Interview angle:** Always pin minimum versions for libraries that have breaking API changes between minor versions. `Resampling` vs `ANTIALIAS` is the most common Pillow migration issue.
+
+---
+
+### Bug 12: ConcurrencyPolicy: Allow — two training jobs running simultaneously
+
+**Symptom:** Two training pods running at the same time — one manually triggered (`retrain-v7`), one from the CronJob schedule. Both on the same GPU node, sharing 16GB VRAM.
+
+**Root cause:** CronJob's `concurrencyPolicy` defaults to `Allow` — it will start a new run even if the previous one is still running.
+
+**Fix:** Set `concurrencyPolicy: Forbid` in the CronJob spec:
+```yaml
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid   # skip this run if previous still running
+```
+
+**Three concurrency options:**
+- `Allow` — run regardless (default, wrong for training)
+- `Forbid` — skip this run if previous still running (correct for training)
+- `Replace` — kill the running job and start fresh (correct for time-sensitive jobs)
+
+**Interview angle:** Training jobs are not idempotent — two running at once means two models uploading to S3, overwriting each other. Always set `Forbid` for CronJobs that run stateful operations.
+
+---
+
+### Bug 13: Wrong AMI — GPU node had no NVIDIA drivers
+
+**Symptom:** Training pod reported `Using device: cpu` even on the GPU node. `kubectl logs` for NVIDIA device plugin showed `WARNING: The NVIDIA Driver was not detected`.
+
+**Root cause:** The GPU node group was using `AL2023_x86_64_STANDARD` — the standard Amazon Linux 2023 AMI with no NVIDIA drivers. The NVIDIA device plugin DaemonSet runs on the node and reads the GPU through the host driver. No host driver = no GPU visible = device plugin advertises nothing = PyTorch falls back to CPU.
+
+**First fix attempt:** `AL2_x86_64_GPU` — failed. That AMI type was deprecated for Kubernetes 1.33+.
+
+**Actual fix:** `AL2023_x86_64_NVIDIA` — the Amazon Linux 2023 GPU AMI that includes NVIDIA drivers for EKS 1.33+.
+
+```hcl
+resource "aws_eks_node_group" "gpu" {
+  ami_type = "AL2023_x86_64_NVIDIA"
+}
+```
+
+**AMI type reference:**
+```
+AL2023_x86_64_STANDARD  → no GPU drivers (default)
+AL2_x86_64_GPU          → NVIDIA drivers, EKS ≤1.32 only
+AL2023_x86_64_NVIDIA    → NVIDIA drivers, EKS 1.33+ (current)
+```
+
+**Interview angle:** Specifying `ami_type` is mandatory for GPU node groups — without it, you get the standard AMI and PyTorch silently falls back to CPU. This is easy to miss because the node comes up `Ready` and everything looks fine until you check the device.
+
+---
+
+### Bug 14: NVIDIA device plugin not installed
+
+**Symptom:** GPU node was up, AMI was correct, but `kubectl get nodes -o=custom-columns=NAME:.metadata.name,GPU:.status.allocatable.nvidia.com/gpu` showed `<none>` for all nodes.
+
+**Root cause:** Even with the correct AMI (drivers installed), Kubernetes doesn't know about the GPU until the NVIDIA device plugin DaemonSet is running. The device plugin is the bridge between the GPU driver and Kubernetes resource management — it reads the GPU from the host and advertises `nvidia.com/gpu: 1` as a schedulable resource.
+
+**Fix:** Apply the NVIDIA device plugin DaemonSet:
+```bash
+kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.14.1/nvidia-device-plugin.yml
+```
+
+After it runs on the GPU node, `nvidia.com/gpu: 1` appears as an allocatable resource and pods requesting `nvidia.com/gpu: "1"` get scheduled correctly.
+
+**Full GPU stack:**
+```
+AWS AMI (AL2023_x86_64_NVIDIA)    → NVIDIA driver on host OS
+NVIDIA device plugin (DaemonSet)   → reads driver, advertises to Kubernetes
+Pod resource request (nvidia.com/gpu: "1") → Kubernetes schedules to GPU node
+PyTorch (torch.cuda.is_available()) → true
+```
+All four layers must be correct. Any one missing = CPU fallback, no error.
+
+---
+
+### Final result
+
+After all 14 bugs:
+
+```
+retrain-v7-vcctj   1/1   Running   0   12m
+Using device: cuda
+Epoch 1/3: 100%|██████████| 4210/4210 [16:34<00:00, 4.24batch/s, loss=0.0130]
+01:22:28 — Epoch 1/3 — loss: 0.2345, val_accuracy: 0.9014
+01:22:28 — New best model saved — val_accuracy: 0.9014
+```
+
+90.14% accuracy after epoch 1. Real GPU. Real EKS. Fully automated.
+
+---
+
+## Future: Shadow Mode + Production-Grade Promotion Logic
+
+Not built yet. Design saved here for when it gets implemented.
+
+**What shadow mode is:**
+Run the new model alongside the old one before promoting it. New model gets real traffic but its predictions don't go to users — you compare outputs. If all gates pass, promote. This is how companies actually deploy models safely.
+
+**The three pieces:**
+- `inference-shadow` Kubernetes deployment running the new model
+- `retrain_if_needed.py` sends every request to both and records outputs
+- Promotion logic runs after enough shadow traffic accumulates
+
+**Production promotion gates (all must pass):**
+
+**Gate 1 — Minimum traffic**
+Don't decide on 10 requests. Need at least 1000 shadow requests before any promotion decision — otherwise you're flipping a coin, not making a statistical judgment.
+
+**Gate 2 — Accuracy**
+New model accuracy > prod accuracy. Hard requirement, no exceptions.
+
+**Gate 3 — Agreement (drift-aware)**
+```python
+threshold = 0.90 if drift_detected else 0.95
+```
+If drift is detected, the old model is already known to be degrading — accept more disagreement from the new model. If no drift, require tighter agreement before trusting the new model on real traffic.
+
+**Gate 4 — Confidence**
+New model avg confidence ≥ prod avg confidence × 0.95. A model that's more accurate but less confident is suspicious — it might be right for the wrong reasons, or overfitting to the validation set.
+
+**Gate 5 — Latency**
+New model p99 latency ≤ prod p99 latency × 1.20. An accuracy improvement doesn't justify significantly slower inference — users feel latency, not accuracy.
+
+**Then canary rollout, not direct promotion:**
+```
+shadow (0% real traffic, compare only)
+  → 5% canary  → monitor 30 min → check error rate + latency
+  → 25% canary → monitor 30 min → check error rate + latency
+  → 100% production
+```
+Auto-rollback at any stage if error rate spikes above threshold.
+
+**The drift override:**
+If drift is severe enough that the old model is clearly failing, gates 3 and 4 loosen. A degrading model already in production is worse than a slightly uncertain new one — in that case, take the risk on the new model.
+
+**Why agreement alone isn't enough:**
+Agreement tells you the new model is consistent with the old one. But if the old model is drifting, high agreement just means the new model is equally wrong. That's why drift, confidence, and latency gates exist alongside agreement.
