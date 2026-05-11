@@ -12,3 +12,4 @@ prometheus-client
 sqlalchemy
 psycopg2-binary
 scikit-learn
+pillow>=9.1.0
