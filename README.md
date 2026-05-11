@@ -190,12 +190,33 @@ helm install ml-pipeline ./helm/ml-pipeline \
   -f helm/ml-pipeline/values.yaml \
   -f helm/ml-pipeline/values.secret.yaml
 
-# 7. Verify everything is running
+# 7. Install NVIDIA device plugin (required for GPU training)
+kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.14.1/nvidia-device-plugin.yml
+
+# 8. Annotate default service account with IRSA role for S3 access
+INFERENCE_ROLE_ARN=$(cd terraform && terraform output -raw inference_role_arn)
+kubectl annotate serviceaccount default eks.amazonaws.com/role-arn=$INFERENCE_ROLE_ARN
+
+# 9. Verify everything is running
 kubectl get pods
 
-# 8. Tear down when done (stops all AWS billing)
+# 10. Trigger initial training (CronJob self-bootstraps but you can also trigger manually)
+kubectl create job retrain-init --from=cronjob/retrain-cronjob
+
+# 11. Tear down when done (stops all AWS billing)
+# IMPORTANT: uninstall Helm first or terraform destroy will hang on VPC (ELB still attached)
+helm uninstall ml-pipeline
 terraform destroy
 ```
+
+### Fresh cluster known issues (first deploy only)
+
+| Issue | Cause | Fix |
+|---|---|---|
+| S3 upload fails — `Unable to locate credentials` | IRSA annotation missing on service account | Step 8 above |
+| Inference pod stuck `Init:0/1` | S3 empty — no model uploaded yet | Wait for first training run to complete |
+| PVC stuck — `Multi-Attach error` | Old pod still holding EBS volume | `kubectl delete pod <old-inference-pod>` |
+| `terraform destroy` hangs on VPC | Kubernetes LoadBalancer (ELB) still exists | Run `helm uninstall ml-pipeline` first |
 
 ### Helm (any Kubernetes cluster)
 ```bash
