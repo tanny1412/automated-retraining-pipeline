@@ -190,23 +190,16 @@ helm install ml-pipeline ./helm/ml-pipeline \
   -f helm/ml-pipeline/values.yaml \
   -f helm/ml-pipeline/values.secret.yaml
 
-# 7. Install NVIDIA device plugin (required for GPU training)
-kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.14.1/nvidia-device-plugin.yml
+# 7. Run bootstrap script — installs NVIDIA plugin, IRSA, Cluster Autoscaler, Helm, triggers first training
+./bootstrap.sh
 
-# 8. Annotate default service account with IRSA role for S3 access
-INFERENCE_ROLE_ARN=$(cd terraform && terraform output -raw inference_role_arn)
-kubectl annotate serviceaccount default eks.amazonaws.com/role-arn=$INFERENCE_ROLE_ARN
+# 8. Verify everything is running
+kubectl get pods -w
 
-# 9. Verify everything is running
-kubectl get pods
-
-# 10. Trigger initial training (CronJob self-bootstraps but you can also trigger manually)
-kubectl create job retrain-init --from=cronjob/retrain-cronjob
-
-# 11. Tear down when done (stops all AWS billing)
+# 9. Tear down when done (stops all AWS billing)
 # IMPORTANT: uninstall Helm first or terraform destroy will hang on VPC (ELB still attached)
 helm uninstall ml-pipeline
-terraform destroy
+cd terraform && terraform destroy
 ```
 
 ### Fresh cluster known issues (first deploy only)
