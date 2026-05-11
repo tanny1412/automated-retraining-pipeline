@@ -1,5 +1,6 @@
   resource "aws_s3_bucket" "model_weights" {
-    bucket = var.s3_bucket
+    bucket        = var.s3_bucket
+    force_destroy = true
 
     tags = {
       Name    = "ML Pipeline Model Weights"
