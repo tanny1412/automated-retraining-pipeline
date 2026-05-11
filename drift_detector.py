@@ -14,6 +14,9 @@ DISTRIBUTION_THRESHOLD = float(os.getenv("DISTRIBUTION_THRESHOLD", "0.20"))
 MIN_PREDICTIONS = int(os.getenv("MIN_PREDICTIONS", "10"))
 
 def load_predictions():
+    from db.database import Base, engine
+    from db.models import Prediction as _P  # ensure model registered before create_all
+    Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
         rows = db.query(Prediction).all()

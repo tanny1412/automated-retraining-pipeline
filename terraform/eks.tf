@@ -25,17 +25,36 @@ resource "aws_eks_node_group" "cpu" {
   depends_on = [aws_iam_role_policy_attachment.eks_node_policy]
 }
 
+resource "aws_launch_template" "gpu" {
+  name_prefix = "${var.cluster_name}-gpu-"
+
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = 100
+      volume_type           = "gp3"
+      delete_on_termination = true
+    }
+  }
+}
+
 resource "aws_eks_node_group" "gpu" {
   cluster_name    = aws_eks_cluster.main.name
   node_group_name = "gpu-nodes"
   node_role_arn   = aws_iam_role.eks_node.arn
-  subnet_ids      = aws_subnet.public[*].id
+  subnet_ids      = [aws_subnet.public[1].id]
   instance_types  = ["g4dn.xlarge"]
+  ami_type        = "AL2023_x86_64_NVIDIA"
 
   scaling_config {
     desired_size = 0
     min_size     = 0
     max_size     = 1
+  }
+
+  launch_template {
+    id      = aws_launch_template.gpu.id
+    version = aws_launch_template.gpu.latest_version
   }
 
   labels = {

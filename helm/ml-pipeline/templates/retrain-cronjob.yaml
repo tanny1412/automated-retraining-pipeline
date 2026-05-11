@@ -4,6 +4,7 @@ metadata:
   name: retrain-cronjob
 spec:
   schedule: {{ .Values.training.schedule | quote }}
+  concurrencyPolicy: Forbid
   jobTemplate:
     spec:
       template:
@@ -82,5 +83,4 @@ spec:
           restartPolicy: OnFailure
           volumes:
             - name: models
-              persistentVolumeClaim:
-                claimName: models-pvc
+              emptyDir: {}
